@@ -62,7 +62,7 @@ Shortcut stages: `all_local` (all except baselines), `all` (everything).
 
 - **Model exclusion:** DMLR baselines must use only the 7 models listed in `config/config-dmlr.yml` under `models.complete`. Models listed under `excluded_models` must not be used. Never add models from that exclusion list to the DMLR baseline set.
 - **Speaker framing:** The DMLR prompt asks about the **speaker's** emotion. The constant `DMLR_BASELINE_PROMPT` encodes this.
-- **Anonymization:** This is a blind-review repo. Annotator names are replaced with `Annotator_1` through `Annotator_15`. No author names, institutional references, or identifying URLs should be added. See `docs/copy_postprocessing.md` for the full PII audit.
+- **Anonymization:** This is a blind-review repo. Annotator names are replaced with `Annotator_1` through `Annotator_15`. No author names, institutional references, or identifying URLs should be added.
 - **API safety limits:** The `APICallTracker` caps at 500 calls/model and 2000 total, with checkpoints every 50 calls.
 - **Reproducibility:** All stochastic operations use `--seed 42` by default. VAD text labels map to [-1.0, +1.0] at equal intervals via `VAD_LABEL_MAP`.
 
