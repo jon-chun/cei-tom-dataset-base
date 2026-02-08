@@ -1,6 +1,7 @@
-# Pipeline outputs
+# Pipeline outputs and internal docs
 logs/
 reports/
+docs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
