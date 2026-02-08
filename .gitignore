@@ -2,6 +2,10 @@
 logs/
 reports/
 docs/
+papers/
+
+# Session logs
+202*-*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

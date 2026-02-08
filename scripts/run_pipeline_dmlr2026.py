@@ -31,7 +31,6 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
-from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
 
@@ -733,7 +732,10 @@ def stage_vad_analysis(
                 dist[dim] = {"mean": round(mean, 3), "sd": round(sd, 3), "n": len(vals)}
         results["distributions"][subtype] = dist
 
-    # Emotion-VAD consistency: mean valence per gold-standard emotion
+    # Emotion-VAD consistency: mean valence per annotator's own emotion label
+    # Each annotator's valence rating is grouped by that annotator's own
+    # emotion label (not the gold standard), giving a cleaner measure of
+    # whether annotators' dimensional and categorical ratings align.
     emotion_valence: dict[str, list[float]] = {e: [] for e in PLUTCHIK_EMOTIONS}
     for subtype in SUBTYPES:
         rows = data.get(subtype, [])
@@ -741,13 +743,13 @@ def stage_vad_analysis(
             continue
         names = detect_annotator_names(rows)
         for row in rows:
-            gs = row.get("gold_standard", "").strip().lower()
-            if gs not in emotion_valence:
-                continue
             for nm in names:
+                emo = row.get(f"sl_plutchik_primary_{nm}", "").strip().lower()
+                if emo not in emotion_valence:
+                    continue
                 v = vad_to_numeric(row.get(f"sl_v_{nm}", ""), "v")
                 if v is not None:
-                    emotion_valence[gs].append(v)
+                    emotion_valence[emo].append(v)
 
     for emo in PLUTCHIK_EMOTIONS:
         vals = emotion_valence[emo]
