@@ -4,7 +4,7 @@ This directory contains standardized prompt templates for evaluating language mo
 
 ## Overview
 
-The CEI Benchmark evaluates models' ability to infer the **listener's emotional response** to pragmatically ambiguous utterances. Models receive scenario context and must predict the listener's primary emotion.
+The CEI Benchmark evaluates models' ability to infer the **speaker's emotional state** from pragmatically ambiguous utterances. Models receive scenario context and must predict the speaker's primary emotion.
 
 ## Files
 

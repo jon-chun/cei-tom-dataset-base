@@ -1,4 +1,4 @@
-You are analyzing a social interaction to determine the listener's emotional response.
+You are analyzing a social interaction to determine the speaker's emotional state.
 
 ## Scenario
 
@@ -11,7 +11,7 @@ You are analyzing a social interaction to determine the listener's emotional res
 
 ## Task
 
-Based on this context and utterance, what emotion would the LISTENER most likely feel?
+Based on this context and utterance, what emotion is the SPEAKER most likely experiencing?
 
 Choose exactly ONE emotion from this list:
 - joy
@@ -23,7 +23,7 @@ Choose exactly ONE emotion from this list:
 - anger
 - anticipation
 
-Important: Focus on the LISTENER's emotional response, not the speaker's intent or emotional state.
+Important: Focus on the SPEAKER's emotional state, not the listener's reaction.
 
 ## Response Format
 

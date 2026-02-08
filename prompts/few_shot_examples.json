@@ -1,5 +1,5 @@
 {
-  "description": "Few-shot examples for CEI Benchmark evaluation (2 examples per pragmatic subtype)",
+  "description": "Few-shot examples for CEI Benchmark evaluation (2 examples per pragmatic subtype). Target: speaker's emotional state.",
   "usage": "Prepend these examples to the zero-shot prompt for few-shot evaluation",
   "examples": [
     {
@@ -8,8 +8,8 @@
       "speaker_role": "colleague",
       "listener_role": "presenter",
       "utterance": "Well, that was certainly... memorable.",
-      "ground_truth_emotion": "sadness",
-      "explanation": "The listener recognizes the sarcastic tone—'memorable' here means the opposite of positive. The listener likely feels hurt or dejected."
+      "ground_truth_emotion": "disgust",
+      "explanation": "The speaker uses 'memorable' sarcastically to express contempt for the poor presentation. Beneath the ironic phrasing, the speaker feels disapproval and disdain."
     },
     {
       "subtype": "sarcasm-irony",
@@ -18,7 +18,7 @@
       "listener_role": "late team member",
       "utterance": "So glad you could make it.",
       "ground_truth_emotion": "anger",
-      "explanation": "The listener understands this is sarcastic criticism, not genuine welcome. They may feel frustrated or defensive about being called out."
+      "explanation": "The speaker is frustrated by repeated tardiness and uses sarcasm to express irritation. The faux-warmth masks genuine anger at the disruption."
     },
     {
       "subtype": "mixed-signals",
@@ -26,8 +26,8 @@
       "speaker_role": "adult child",
       "listener_role": "parent",
       "utterance": "It's going fine, really. Everything's fine.",
-      "ground_truth_emotion": "fear",
-      "explanation": "The repetition of 'fine' and 'really' signals something is wrong. The parent likely feels worried or anxious about what's being hidden."
+      "ground_truth_emotion": "sadness",
+      "explanation": "The speaker is struggling but masking it. The repetition of 'fine' and the added 'really' betray underlying sadness and dejection about the situation."
     },
     {
       "subtype": "mixed-signals",
@@ -36,7 +36,7 @@
       "listener_role": "concerned friend",
       "utterance": "Yeah, I'm good. Just tired.",
       "ground_truth_emotion": "sadness",
-      "explanation": "The body language contradicts the verbal message. The listener senses something is wrong and may feel helpless or sad about their friend's state."
+      "explanation": "The speaker is deflecting concern with a surface-level excuse. The avoidance of eye contact signals the speaker is experiencing sadness or emotional distress they don't want to discuss."
     },
     {
       "subtype": "strategic-politeness",
@@ -44,8 +44,8 @@
       "speaker_role": "senior manager",
       "listener_role": "junior employee",
       "utterance": "This is certainly a creative approach. Let's discuss some... alternative directions.",
-      "ground_truth_emotion": "fear",
-      "explanation": "The hedged language ('creative approach', 'alternative directions') signals criticism wrapped in politeness. The listener likely feels anxious about the implied rejection."
+      "ground_truth_emotion": "anger",
+      "explanation": "The speaker is displeased with the proposal but uses diplomatic language to soften the criticism. The hedged phrasing masks frustration at the quality of work."
     },
     {
       "subtype": "strategic-politeness",
@@ -53,8 +53,8 @@
       "speaker_role": "customer",
       "listener_role": "service representative",
       "utterance": "I appreciate your help, but I'm not sure that quite addresses my concern.",
-      "ground_truth_emotion": "surprise",
-      "explanation": "The polite framing masks criticism. The representative may be caught off guard that their solution was inadequate."
+      "ground_truth_emotion": "anger",
+      "explanation": "The speaker is frustrated that their problem remains unsolved but maintains polite composure. The strategic courtesy masks underlying irritation."
     },
     {
       "subtype": "passive-aggression",
@@ -63,7 +63,7 @@
       "listener_role": "messy roommate",
       "utterance": "Don't worry about it. I'll just do them myself. Like always.",
       "ground_truth_emotion": "anger",
-      "explanation": "The 'don't worry about it' is not genuine—it's accusatory. The listener likely feels defensive and angry about the passive-aggressive delivery."
+      "explanation": "The speaker's compliance is performative. 'Like always' reveals accumulated resentment. The speaker feels angry about the repeated inconsideration."
     },
     {
       "subtype": "passive-aggression",
@@ -72,7 +72,7 @@
       "listener_role": "teenager",
       "utterance": "Well, I suppose that's one way to clean a room.",
       "ground_truth_emotion": "anger",
-      "explanation": "The statement implies the room isn't actually clean. The teenager likely feels frustrated by the indirect criticism."
+      "explanation": "The speaker is dissatisfied with the half-hearted effort. The indirect criticism ('one way') expresses frustration through passive-aggressive understatement."
     },
     {
       "subtype": "deflection-misdirection",
@@ -80,8 +80,8 @@
       "speaker_role": "employee",
       "listener_role": "manager",
       "utterance": "You know what's been really interesting lately? The new project management tools the other teams are using.",
-      "ground_truth_emotion": "anger",
-      "explanation": "The obvious topic change avoids accountability. The manager likely feels frustrated by the deflection."
+      "ground_truth_emotion": "fear",
+      "explanation": "The speaker abruptly changes subject to avoid accountability. The deflection signals underlying anxiety and fear about the consequences of the missed deadline."
     },
     {
       "subtype": "deflection-misdirection",
@@ -90,7 +90,7 @@
       "listener_role": "relative",
       "utterance": "Oh look, is that Aunt Martha? I haven't said hello to her yet!",
       "ground_truth_emotion": "surprise",
-      "explanation": "The abrupt subject change signals discomfort with the question. The relative may be taken aback by the obvious avoidance."
+      "explanation": "The speaker is caught off guard by the personal question and deflects with an abrupt exit. The sudden redirection reveals discomfort and surprise at being put on the spot."
     }
   ]
 }

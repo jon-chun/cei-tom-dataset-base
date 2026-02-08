@@ -213,25 +213,13 @@ python scripts/run_pipeline_dmlr2026.py \
 
 ---
 
-## Paper Building
-
-```bash
-cd papers/dmlr2026
-pdflatex cei-tom_dataset.tex
-bibtex cei-tom_dataset
-pdflatex cei-tom_dataset.tex
-pdflatex cei-tom_dataset.tex
-```
-
----
-
 ## Project Structure
 
 ```
 scripts/run_pipeline_dmlr2026.py     # DMLR pipeline (all stages)
+scripts/generate_figures.py          # Paper figure generation
 config/config-dmlr.yml               # Model ensemble + pricing
 data/human-gold/                     # Merged annotated CSVs
-papers/dmlr2026/cei-tom_dataset.tex  # DMLR paper source
-papers/dmlr2026/cei-tom_dataset.bib  # Bibliography
-reports/dmlr2026/                    # Pipeline outputs
+prompts/                             # Prompt templates (zero-shot, CoT, few-shot)
+reports/dmlr2026/                    # Pipeline outputs (tables, figures, JSON)
 ```
