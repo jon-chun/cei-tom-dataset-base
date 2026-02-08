@@ -4,8 +4,8 @@
 Implements all computational tasks for the DMLR dataset paper (R0–R9):
   Phase 0 (local):  Data verification, κ, power distribution, human performance,
                      VAD analysis, scale justification, stratified splits, examples
-  Phase 1 (API):    CogSci-safe baseline inference (models loaded from
-                     config/config-dmlr.yml — none overlap with CogSci 2026)
+  Phase 1 (API):    Baseline inference (models loaded from
+                     config/config-dmlr.yml)
   Phase 2 (local):  Baseline analysis, LaTeX tables, figures
 
 Usage:
@@ -84,8 +84,8 @@ POWER_KEYWORDS_LOW_TO_HIGH = [
     "junior", "intern", "mentee", "son", "daughter", "patient",
 ]
 
-# DMLR-specific prompt: asks about the SPEAKER's emotion (distinct from CogSci's
-# LISTENER framing).  This is the ground-truth annotation target.
+# DMLR-specific prompt: asks about the SPEAKER's emotion.
+# This is the ground-truth annotation target.
 DMLR_BASELINE_PROMPT = """You are evaluating a communication scenario.  Based on the \
 context, determine the primary emotion the SPEAKER is most likely experiencing when \
 they make this utterance.
@@ -842,7 +842,7 @@ def stage_extract_examples(
 ) -> dict[str, Any]:
     """R7: Select candidate worked examples (prefer mixed signals & deflection)."""
     logger.info("[R7] Extracting candidate worked examples")
-    # Prefer subtypes NOT used by CogSci paper (strategic-politeness is CogSci's example)
+    # Prefer subtypes that best showcase pragmatic diversity
     preferred = ["deflection-misdirection", "mixed-signals", "passive-aggression"]
     candidates: list[dict[str, Any]] = []
 
@@ -1045,7 +1045,7 @@ def stage_run_baselines(
     dry_run: bool = False,
     resume: bool = False,
 ) -> dict[str, Any]:
-    """R1: Run CogSci-safe baseline models on all 300 scenarios."""
+    """R1: Run baseline models on all 300 scenarios."""
     logger.info("[R1] Baseline inference")
     if models is None:
         models = list(model_registry.keys())
