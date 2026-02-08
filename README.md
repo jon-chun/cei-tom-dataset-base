@@ -70,7 +70,7 @@ Outputs to `reports/dmlr2026/`:
 
 ## Running LLM Baselines
 
-The paper includes baseline results from 7 CogSci-safe models (models **not** evaluated in the companion CogSci 2026 paper).  Models and pricing are defined in `config/config-dmlr.yml`.
+The paper includes baseline results from 7 models.  Models and pricing are defined in `config/config-dmlr.yml`.
 
 ### Baseline Models
 
@@ -206,10 +206,10 @@ python scripts/run_pipeline_dmlr2026.py \
 
 - **Random seed:** All stochastic operations (bootstrap CIs, stratified splits) use `--seed 42` by default
 - **VAD mapping:** 7 text labels per dimension mapped to [-1.0, +1.0] at equal intervals
-- **Baseline prompt:** Asks about the **speaker's** emotion (distinct from CogSci's listener framing)
+- **Baseline prompt:** Asks about the **speaker's** emotion
 - **Safety limits:** API call tracker caps at 500/model, 2000 total; checkpoints every 50 calls
 - **Annotation target:** Labels describe the speaker's emotional state, not the listener's response
-- **CogSci independence:** All 7 baseline models are distinct from the 15 models used in the CogSci 2026 companion paper (see `cogsci_off_limits` in config)
+- **Model selection:** All 7 baseline models are defined in `config/config-dmlr.yml` under `models.complete`
 
 ---
 

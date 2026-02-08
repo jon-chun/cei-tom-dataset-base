@@ -60,8 +60,8 @@ Shortcut stages: `all_local` (all except baselines), `all` (everything).
 
 ## Important Constraints
 
-- **CogSci model exclusion:** DMLR baselines must use only models NOT in the CogSci 2026 companion paper. The exclusion list is in `config/config-dmlr.yml` under `cogsci_off_limits`. Never add models from that list to the DMLR baseline set.
-- **Speaker framing:** The DMLR prompt asks about the **speaker's** emotion (distinct from CogSci's listener framing). The constant `DMLR_BASELINE_PROMPT` encodes this.
+- **Model exclusion:** DMLR baselines must use only the 7 models listed in `config/config-dmlr.yml` under `models.complete`. Models listed under `excluded_models` must not be used. Never add models from that exclusion list to the DMLR baseline set.
+- **Speaker framing:** The DMLR prompt asks about the **speaker's** emotion. The constant `DMLR_BASELINE_PROMPT` encodes this.
 - **Anonymization:** This is a blind-review repo. Annotator names are replaced with `Annotator_1` through `Annotator_15`. No author names, institutional references, or identifying URLs should be added. See `docs/copy_postprocessing.md` for the full PII audit.
 - **API safety limits:** The `APICallTracker` caps at 500 calls/model and 2000 total, with checkpoints every 50 calls.
 - **Reproducibility:** All stochastic operations use `--seed 42` by default. VAD text labels map to [-1.0, +1.0] at equal intervals via `VAD_LABEL_MAP`.
@@ -69,7 +69,7 @@ Shortcut stages: `all_local` (all except baselines), `all` (everything).
 ## Repo Structure
 
 - `data/human-gold/` — 5 merged CSVs (60 scenarios each, 3 annotators)
-- `config/config-dmlr.yml` — Pipeline configuration, model lists, CogSci exclusions
+- `config/config-dmlr.yml` — Pipeline configuration, model lists, model exclusions
 - `scripts/run_pipeline_dmlr2026.py` — Main analysis pipeline (all stages)
 - `scripts/generate_figures.py` — Paper figure generation from CSV data
 - `prompts/` — Standardized prompt templates (zero-shot, chain-of-thought, few-shot examples)
