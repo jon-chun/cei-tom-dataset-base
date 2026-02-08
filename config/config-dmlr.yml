@@ -29,7 +29,7 @@ llm_inference:
       - id: "accounts/fireworks/models/deepseek-v3p1"
         provider: "fireworks"
       - id: "microsoft/phi-4"
-        provider: "together"
+        provider: "openrouter"
 
   # Excluded models — DO NOT use for DMLR baselines
   excluded_models:

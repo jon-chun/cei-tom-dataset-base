@@ -1,6 +1,6 @@
-# CEI-ToM Dataset: DMLR 2026 Replication Guide
+# CEI Dataset: DMLR 2026 Replication Guide
 
-**Paper:** *CEI-ToM: A Benchmark Dataset for Contextual Emotional Inference and Theory of Mind*
+**Paper:** *CEI: A Benchmark for Evaluating Pragmatic Reasoning in Language Models*
 **Venue:** Journal of Data-centric Machine Learning Research (DMLR)
 
 ---
