@@ -77,8 +77,10 @@ pricing_usd_per_1m_tokens:
     _default:             {input: 1.00,  output:  5.00}
   together:
     meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo: {input: 0.88, output: 0.88}
-    microsoft/phi-4:      {input: 0.13,  output:  0.50}
     _default:             {input: 0.15,  output:  0.60}
+  openrouter:
+    microsoft/phi-4:      {input: 0.13,  output:  0.50}
+    _default:             {input: 0.50,  output:  2.00}
   ollama:
     _default:             {input: 0.0,   output:  0.0}
 
