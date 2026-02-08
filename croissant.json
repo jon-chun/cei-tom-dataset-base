@@ -1,0 +1,148 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "sc": "https://schema.org/",
+    "ml": "http://mlcommons.org/croissant/",
+    "rai": "http://mlcommons.org/croissant/RAI/"
+  },
+  "@type": "sc:Dataset",
+  "name": "CEI Benchmark",
+  "description": "Contextual Emotional Inference (CEI) Benchmark: 300 human-validated scenarios for evaluating pragmatic reasoning in language models. Each scenario consists of a situational context, speaker-listener roles with explicit power relations, and an ambiguous utterance requiring pragmatic interpretation. The dataset spans 5 pragmatic subtypes with 3 independent annotations per scenario using Plutchik's 8 basic emotions and VAD (Valence-Arousal-Dominance) ratings.",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "url": "https://anonymous.4open.science/r/cei-tom-dataset-base-86D0/",
+  "version": "1.0.0",
+  "datePublished": "2026-02-08",
+  "keywords": [
+    "pragmatic reasoning",
+    "emotion inference",
+    "benchmark",
+    "language models",
+    "social reasoning",
+    "Theory of Mind",
+    "annotation"
+  ],
+  "creator": {
+    "@type": "Organization",
+    "name": "Kenyon College"
+  },
+  "distribution": [
+    {
+      "@type": "sc:FileObject",
+      "name": "data_sarcasm-irony.csv",
+      "contentUrl": "data/human-gold/data_sarcasm-irony.csv",
+      "encodingFormat": "text/csv",
+      "description": "60 sarcasm/irony scenarios with 3 annotator labels each"
+    },
+    {
+      "@type": "sc:FileObject",
+      "name": "data_mixed-signals.csv",
+      "contentUrl": "data/human-gold/data_mixed-signals.csv",
+      "encodingFormat": "text/csv",
+      "description": "60 mixed-signals scenarios with 3 annotator labels each"
+    },
+    {
+      "@type": "sc:FileObject",
+      "name": "data_passive-aggression.csv",
+      "contentUrl": "data/human-gold/data_passive-aggression.csv",
+      "encodingFormat": "text/csv",
+      "description": "60 passive-aggression scenarios with 3 annotator labels each"
+    },
+    {
+      "@type": "sc:FileObject",
+      "name": "data_deflection-misdirection.csv",
+      "contentUrl": "data/human-gold/data_deflection-misdirection.csv",
+      "encodingFormat": "text/csv",
+      "description": "60 deflection/misdirection scenarios with 3 annotator labels each"
+    },
+    {
+      "@type": "sc:FileObject",
+      "name": "data_strategic-politeness.csv",
+      "contentUrl": "data/human-gold/data_strategic-politeness.csv",
+      "encodingFormat": "text/csv",
+      "description": "60 strategic-politeness scenarios with 3 annotator labels each"
+    },
+    {
+      "@type": "sc:FileObject",
+      "name": "splits.json",
+      "contentUrl": "reports/dmlr2026/splits.json",
+      "encodingFormat": "application/json",
+      "description": "Stratified train/val/test split assignments (70/15/15, seed=42)"
+    }
+  ],
+  "recordSet": [
+    {
+      "@type": "ml:RecordSet",
+      "name": "scenarios",
+      "description": "Individual annotated scenarios across all pragmatic subtypes",
+      "field": [
+        {
+          "@type": "ml:Field",
+          "name": "id",
+          "description": "Scenario ID (1-60 within each subtype)",
+          "dataType": "sc:Integer"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sd_situation",
+          "description": "Situational context (2-4 sentences establishing setting and background)",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sd_utterance",
+          "description": "Speaker's pragmatically ambiguous utterance",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sd_speaker_role",
+          "description": "Speaker's role or relationship to the listener",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sd_listener_role",
+          "description": "Listener's role or relationship to the speaker",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "gold_standard",
+          "description": "Adjudicated ground truth emotion label from Plutchik's 8 basic emotions",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sl_plutchik_primary_*",
+          "description": "Per-annotator primary emotion label (3 per scenario). One of: joy, trust, fear, surprise, sadness, disgust, anger, anticipation",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sl_v_*",
+          "description": "Per-annotator valence rating (7-point scale mapped to [-1.0, +1.0])",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sl_a_*",
+          "description": "Per-annotator arousal rating (7-point scale mapped to [-1.0, +1.0])",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sl_d_*",
+          "description": "Per-annotator dominance rating (7-point scale mapped to [-1.0, +1.0])",
+          "dataType": "sc:Text"
+        },
+        {
+          "@type": "ml:Field",
+          "name": "sl_confidence_*",
+          "description": "Per-annotator confidence rating (7-point scale)",
+          "dataType": "sc:Text"
+        }
+      ]
+    }
+  ],
+  "ml:isLiveDataset": false
+}

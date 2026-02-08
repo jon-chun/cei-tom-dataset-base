@@ -36,6 +36,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -110,6 +113,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "together": "TOGETHER_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
 }
 
 # OpenAI-compatible chat/completions endpoints (all except anthropic and google)
@@ -118,16 +122,18 @@ OPENAI_COMPAT_ENDPOINTS: dict[str, str] = {
     "xai": "https://api.x.ai/v1/chat/completions",
     "together": "https://api.together.xyz/v1/chat/completions",
     "fireworks": "https://api.fireworks.ai/inference/v1/chat/completions",
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
 }
 
 # Per-provider max concurrent requests (shared across all models from same provider)
 PROVIDER_CONCURRENCY: dict[str, int] = {
     "openai": 10,
     "anthropic": 5,
-    "xai": 10,
+    "xai": 5,
     "google": 10,
-    "together": 8,    # shared by Llama-3.1-70B + Phi-4
-    "fireworks": 8,
+    "together": 4,    # Llama-3.1-70B
+    "fireworks": 4,
+    "openrouter": 4,
 }
 
 
@@ -228,7 +234,7 @@ class APICallTracker:
 
 @dataclass
 class RetryConfig:
-    max_retries: int = 3
+    max_retries: int = 5
     base_delay: float = 2.0
     max_delay: float = 60.0
     jitter_factor: float = 0.25
@@ -882,6 +888,16 @@ def stage_create_splits(
     for s in ["train", "val", "test"]:
         logger.info(f"  {s}: {proportions[s]['total']} scenarios  {proportions[s].get('by_subtype', {})}")
 
+    # Save splits to disk for reproducibility
+    splits_path = Path("reports/dmlr2026/splits.json")
+    splits_path.parent.mkdir(parents=True, exist_ok=True)
+    splits_path.write_text(json.dumps({
+        "seed": seed,
+        "fractions": {"train": train_frac, "val": val_frac, "test": round(test_frac, 2)},
+        "assignments": split_assignments,
+    }, indent=2))
+    logger.info(f"  Saved split assignments: {splits_path}")
+
     return {
         "seed": seed,
         "fractions": {"train": train_frac, "val": val_frac, "test": test_frac},
@@ -986,9 +1002,10 @@ def _call_openai_compat(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": "CEI-ToM/1.0",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read())
     return data["choices"][0]["message"]["content"]
 
@@ -1009,9 +1026,10 @@ def _call_anthropic(model_id: str, prompt: str, api_key: str) -> Optional[str]:
             "Content-Type": "application/json",
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
+            "User-Agent": "CEI-ToM/1.0",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read())
     return data["content"][0]["text"]
 
@@ -1026,16 +1044,28 @@ def _call_google(model_id: str, prompt: str, api_key: str) -> Optional[str]:
     )
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 60, "temperature": 0.0},
+        "generationConfig": {
+            "maxOutputTokens": 1024,
+            "temperature": 0.0,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }).encode()
     req = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "CEI-ToM/1.0",
+        },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read())
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts)
+    except (KeyError, IndexError):
+        # Gemini may block content or return empty responses
+        return None
 
 
 def _call_model(
@@ -1348,7 +1378,7 @@ def stage_run_baselines(
 
     def _process_one(model_name: str, sc: dict[str, str]) -> None:
         """Process a single (model, scenario) pair with provider throttling."""
-        key = f"{model_name}::{sc['id']}"
+        key = f"{model_name}::{sc['subtype']}::{sc['id']}"
 
         # Check cache
         with checkpoint_lock:
@@ -1397,7 +1427,7 @@ def stage_run_baselines(
                     success = True
                 except Exception as e:
                     is_rate_limit = (
-                        hasattr(e, "code") and getattr(e, "code", 0) == 429
+                        hasattr(e, "code") and getattr(e, "code", 0) in (429, 403)
                     )
                     tracker.record_retry(is_rate_limit=is_rate_limit)
                     if is_rate_limit:
@@ -1626,6 +1656,17 @@ def stage_generate_outputs(
     """Generate LaTeX tables and optional figures for the DMLR paper."""
     logger.info("[Output] Generating paper outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # If all_results is empty (standalone run), load from saved master JSON
+    if not any(k for k in all_results if k != "outputs"):
+        master_path = output_dir / "dmlr2026_all_results.json"
+        if master_path.exists():
+            logger.info(f"  Loading cached results from {master_path}")
+            with open(master_path) as f:
+                cached = json.load(f)
+            all_results.update(cached)
+        else:
+            logger.warning("  No cached results found. Run analysis stages first.")
     generated: list[str] = []
 
     # --- Table 2: Inter-Annotator Agreement (κ per subtype) ---
@@ -1888,6 +1929,7 @@ ALL_LOCAL_STAGES = [
     "scale_justification",
     "create_splits",
     "extract_examples",
+    "generate_outputs",
 ]
 
 ALL_STAGES = ALL_LOCAL_STAGES + [

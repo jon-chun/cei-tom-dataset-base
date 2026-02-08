@@ -15,6 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import spearmanr
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -260,9 +261,9 @@ def fig3_linguistic_analysis(agreement_data):
     z = np.polyfit(context_lengths, agreements, 1)
     p = np.poly1d(z)
     x_line = np.linspace(context_lengths.min(), context_lengths.max(), 100)
-    r_context = np.corrcoef(context_lengths, agreements)[0, 1]
+    rho_context = spearmanr(context_lengths, agreements).statistic
     ax1.plot(x_line, p(x_line), "r--", alpha=0.8, linewidth=1.5,
-             label=f"r={r_context:.2f}")
+             label=f"\u03c1={rho_context:.2f}")
     ax1.set_xlabel("Context Length (words)")
     ax1.set_ylabel("Annotator Agreement")
     ax1.set_title("(a) Context Length vs Agreement", fontsize=9)
@@ -274,9 +275,9 @@ def fig3_linguistic_analysis(agreement_data):
     z = np.polyfit(utterance_lengths, agreements, 1)
     p = np.poly1d(z)
     x_line = np.linspace(utterance_lengths.min(), utterance_lengths.max(), 100)
-    r_utterance = np.corrcoef(utterance_lengths, agreements)[0, 1]
+    rho_utterance = spearmanr(utterance_lengths, agreements).statistic
     ax2.plot(x_line, p(x_line), "r--", alpha=0.8, linewidth=1.5,
-             label=f"r={r_utterance:.2f}")
+             label=f"\u03c1={rho_utterance:.2f}")
     ax2.set_xlabel("Utterance Length (words)")
     ax2.set_ylabel("Annotator Agreement")
     ax2.set_title("(b) Utterance Length vs Agreement", fontsize=9)
@@ -289,8 +290,8 @@ def fig3_linguistic_analysis(agreement_data):
     plt.close()
 
     print(f"  Generated: fig3_linguistic_analysis.pdf/png")
-    print(f"    Context length correlation: r={r_context:.3f}")
-    print(f"    Utterance length correlation: r={r_utterance:.3f}")
+    print(f"    Context length Spearman rho: {rho_context:.3f}")
+    print(f"    Utterance length Spearman rho: {rho_utterance:.3f}")
     print(f"    Mean context length: {context_lengths.mean():.1f} words")
     print(f"    Mean utterance length: {utterance_lengths.mean():.1f} words")
 

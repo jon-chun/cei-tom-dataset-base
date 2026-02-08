@@ -5,6 +5,7 @@ description = "CEI-ToM Benchmark Dataset — anonymous submission"
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -12,3 +13,6 @@ figures = [
     "matplotlib>=3.7",
     "numpy>=1.24",
 ]
+
+[tool.setuptools]
+py-modules = []
