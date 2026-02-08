@@ -6,7 +6,7 @@
 
 ### For what purpose was the dataset created?
 
-The Contextual Emotional Inference (CEI) Benchmark was created to evaluate pragmatic reasoning capabilities in large language models. Specifically, it tests models' ability to infer listeners' emotional responses to pragmatically ambiguous utterances—situations where intended meaning diverges from literal semantics.
+The Contextual Emotional Inference (CEI) Benchmark was created to evaluate pragmatic reasoning capabilities in large language models. Specifically, it tests models' ability to infer the speaker's emotional state from pragmatically ambiguous utterances---situations where intended meaning diverges from literal semantics.
 
 ### Who created the dataset and on behalf of which entity?
 
@@ -24,7 +24,7 @@ Each instance is a **scenario** consisting of:
 - A situational context (2–4 sentences establishing setting and background)
 - Speaker and listener roles with explicit power relations
 - An ambiguous utterance requiring pragmatic interpretation
-- Three independent annotations of the listener's emotional response
+- Three independent annotations of the speaker's emotional state
 
 ### How many instances are there?
 
@@ -36,7 +36,7 @@ Each instance is a **scenario** consisting of:
 | Pragmatic subtypes | 5 |
 | Scenarios per subtype | 60 |
 | Power relations | 3 |
-| Social domains | 5 |
+| Social contexts | 4 (workplace, family, social, service) |
 
 ### What data does each instance consist of?
 
@@ -48,24 +48,20 @@ Each scenario contains:
 - `sd_utterance`: The speaker's pragmatically ambiguous statement
 - `sd_speaker_role`: The speaker's social role
 - `sd_listener_role`: The listener's social role
-- `sd_domain`: Social domain (workplace, family, social, service, general)
-- `sd_subtype`: Pragmatic subtype (sarcasm-irony, mixed-signals, strategic-politeness, passive-aggression, deflection-misdirection)
-
-**Annotation fields (per annotator):**
-- `sl_plutchik_primary`: Listener's primary emotion (8 Plutchik categories)
-- `sl_v`: Valence rating (7-point scale)
-- `sl_a`: Arousal rating (7-point scale)
-- `sl_d`: Dominance rating (7-point scale)
-- `sl_confidence`: Annotator confidence (7-point scale)
-- `lead_time`: Annotation completion time in seconds
+**Annotation fields (per annotator, suffixed with `_Annotator_N`):**
+- `sl_plutchik_primary`: Speaker's primary emotion (8 Plutchik categories)
+- `sl_v`: Valence rating (7-point text scale)
+- `sl_a`: Arousal rating (7-point text scale)
+- `sl_d`: Dominance rating (7-point text scale)
+- `sl_confidence`: Annotator confidence (7-point text scale)
 
 ### Is there a label or target associated with each instance?
 
-Yes. The target is the **listener's emotional response**, encoded as:
+Yes. The target is the **speaker's emotional state**, encoded as:
 1. Primary emotion from Plutchik's 8 basic emotions
 2. VAD (Valence-Arousal-Dominance) dimensional ratings
 
-Ground truth is established via majority vote among 3 annotators. For 3-way splits (41% of dataset), expert adjudication determined the label.
+Ground truth is established via majority vote among 3 annotators. For 3-way splits (31.3% of dataset), expert adjudication determined the label.
 
 ### Is any information missing from individual instances?
 
@@ -73,7 +69,7 @@ No. All 300 scenarios have complete annotations from all 3 assigned annotators.
 
 ### Are there any errors, sources of noise, or redundancies?
 
-The documented low inter-annotator agreement (Fleiss' κ = 0.12) reflects the **genuine ambiguity** inherent in pragmatic inference, not annotation noise. This is a deliberate feature of the benchmark—pragmatically ambiguous utterances naturally admit multiple valid interpretations.
+The documented inter-annotator agreement (Fleiss' κ = 0.21, fair) reflects the **genuine ambiguity** inherent in pragmatic inference, not annotation noise. This is a deliberate feature of the benchmark—pragmatically ambiguous utterances naturally admit multiple valid interpretations.
 
 Quality control measures applied:
 - 4-level automated QA pipeline
@@ -138,8 +134,8 @@ The dataset is designed for evaluating language models on:
 
 1. **English only**: Pragmatic conventions vary across languages and cultures
 2. **Synthetic scenarios**: May not capture full complexity of naturalistic communication
-3. **Power relation imbalance**: 90% peer-to-peer interactions limits power-stratified analysis
-4. **Low agreement is informative**: The κ = 0.12 reflects genuine ambiguity, not noise
+3. **Power relation imbalance**: 72% peer-to-peer interactions limits power-stratified analysis
+4. **Low agreement is informative**: The κ = 0.21 (fair) reflects genuine ambiguity, not noise
 
 ### Are there tasks for which the dataset should not be used?
 

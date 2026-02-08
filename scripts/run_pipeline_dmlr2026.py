@@ -190,7 +190,7 @@ def get_pricing(config: dict[str, Any]) -> dict[str, dict[str, dict[str, float]]
 
 
 # ---------------------------------------------------------------------------
-# Utility classes (patterned after run_pipeline_facct2026.py)
+# Utility classes
 # ---------------------------------------------------------------------------
 
 

@@ -51,7 +51,7 @@ Run these commands to verify the dataset and reproduce all analyses:
 
 ```bash
 # 1. Install dependencies
-pip install numpy pandas pyyaml matplotlib
+uv pip install -e ".[figures]"
 
 # 2. Run full analysis pipeline (local stages only, no API calls)
 python scripts/run_pipeline_dmlr2026.py --stage all_local

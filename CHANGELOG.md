@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release of CEI Benchmark dataset
 - 300 scenarios across 5 pragmatic subtypes
 - 900 annotations (3 per scenario) from 15 trained annotators
-- 4-level quality control pipeline (`src/cei_quality/`)
-- Pre-computed analysis outputs (`data/analysis/`)
-- Publication figures (`figures/`)
+- 4-level quality control pipeline (`scripts/run_pipeline_dmlr2026.py`)
+- Pipeline outputs (`reports/dmlr2026/`)
+- Figure generation (`scripts/generate_figures.py`)
 - Complete annotation guidelines (paper Appendix B)
 - Datasheet documentation (`DATASHEET.md`)
 - Prompt templates for model evaluation (`prompts/`)
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scenarios**: 300 total (60 per subtype)
 - **Annotations**: 900 total (3 per scenario)
 - **Pragmatic Subtypes**: sarcasm-irony, mixed-signals, strategic-politeness, passive-aggression, deflection-misdirection
-- **Inter-Annotator Agreement**: Fleiss' κ = 0.12 (overall), ranging from -0.06 to 0.25 by subtype
+- **Inter-Annotator Agreement**: Fleiss' κ = 0.21 (overall), ranging from 0.06 to 0.25 by subtype
 - **Expert Adjudication Rate**: 15.7% of scenarios
 
 ## Versioning Policy

@@ -1,4 +1,4 @@
-You are analyzing a social interaction to determine the listener's emotional response.
+You are analyzing a social interaction to determine the speaker's emotional state.
 
 ## Scenario
 
@@ -11,15 +11,15 @@ You are analyzing a social interaction to determine the listener's emotional res
 
 ## Task
 
-Based on this context and utterance, what emotion would the LISTENER most likely feel?
+Based on this context and utterance, what emotion is the SPEAKER most likely experiencing?
 
 Think through this step by step:
 
 1. **Literal meaning**: What does the utterance literally say?
-2. **Contextual cues**: What does the situation suggest about the speaker's actual intent?
+2. **Contextual cues**: What does the situation suggest about what is really going on?
 3. **Pragmatic interpretation**: Is there a gap between what is said and what is meant?
-4. **Listener's perspective**: How would the listener interpret this utterance given the context?
-5. **Emotional response**: What emotion would this interpretation evoke in the listener?
+4. **Speaker's internal state**: What is the speaker likely feeling beneath the surface of their words?
+5. **Primary emotion**: Which single emotion best captures the speaker's state?
 
 After your reasoning, choose exactly ONE emotion from this list:
 - joy
@@ -31,7 +31,7 @@ After your reasoning, choose exactly ONE emotion from this list:
 - anger
 - anticipation
 
-Important: Focus on the LISTENER's emotional response, not the speaker's intent or emotional state.
+Important: Focus on the SPEAKER's emotional state, not the listener's reaction.
 
 ## Response Format
 
