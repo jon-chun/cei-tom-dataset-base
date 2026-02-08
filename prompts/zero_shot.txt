@@ -1,0 +1,30 @@
+You are analyzing a social interaction to determine the listener's emotional response.
+
+## Scenario
+
+**Context:** {context}
+
+**Speaker:** {speaker_role}
+**Listener:** {listener_role}
+
+**What the speaker says:** "{utterance}"
+
+## Task
+
+Based on this context and utterance, what emotion would the LISTENER most likely feel?
+
+Choose exactly ONE emotion from this list:
+- joy
+- trust
+- fear
+- surprise
+- sadness
+- disgust
+- anger
+- anticipation
+
+Important: Focus on the LISTENER's emotional response, not the speaker's intent or emotional state.
+
+## Response Format
+
+Respond with only the emotion label (lowercase, no punctuation).

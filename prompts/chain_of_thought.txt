@@ -1,0 +1,41 @@
+You are analyzing a social interaction to determine the listener's emotional response.
+
+## Scenario
+
+**Context:** {context}
+
+**Speaker:** {speaker_role}
+**Listener:** {listener_role}
+
+**What the speaker says:** "{utterance}"
+
+## Task
+
+Based on this context and utterance, what emotion would the LISTENER most likely feel?
+
+Think through this step by step:
+
+1. **Literal meaning**: What does the utterance literally say?
+2. **Contextual cues**: What does the situation suggest about the speaker's actual intent?
+3. **Pragmatic interpretation**: Is there a gap between what is said and what is meant?
+4. **Listener's perspective**: How would the listener interpret this utterance given the context?
+5. **Emotional response**: What emotion would this interpretation evoke in the listener?
+
+After your reasoning, choose exactly ONE emotion from this list:
+- joy
+- trust
+- fear
+- surprise
+- sadness
+- disgust
+- anger
+- anticipation
+
+Important: Focus on the LISTENER's emotional response, not the speaker's intent or emotional state.
+
+## Response Format
+
+First, provide your step-by-step reasoning.
+Then, on a new line, write: "Answer: [emotion]"
+
+Where [emotion] is one of the 8 emotions listed above (lowercase, no punctuation).
