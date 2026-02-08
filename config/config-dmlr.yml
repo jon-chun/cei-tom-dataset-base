@@ -1,0 +1,96 @@
+# =============================================================================
+# CEI-ToM DMLR 2026 Configuration
+# =============================================================================
+# IMPORTANT: DMLR baselines must use models NOT evaluated in the CogSci 2026
+# companion paper. See cogsci_off_limits below for the full exclusion list.
+
+llm_inference:
+  # Model sets by execution mode
+  models:
+    # TEST mode: single model for quick validation
+    test:
+      - id: "gpt-4o"
+        provider: "openai"
+
+    # COMPLETE mode: DMLR-safe models (none overlap with CogSci 2026)
+    complete:
+      # Commercial API models
+      - id: "gpt-4o"
+        provider: "openai"
+      - id: "claude-sonnet-4-5"
+        provider: "anthropic"
+      - id: "grok-4"
+        provider: "xai"
+      - id: "gemini-2.5-flash"
+        provider: "google"
+      # Open-source models via API providers
+      - id: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"
+        provider: "together"
+      - id: "accounts/fireworks/models/deepseek-v3p1"
+        provider: "fireworks"
+      - id: "microsoft/phi-4"
+        provider: "together"
+
+  # Models used in CogSci 2026 — DO NOT use for DMLR baselines
+  cogsci_off_limits:
+    behavioral:
+      - "gpt-5-mini"
+      - "claude-haiku-4-5"
+      - "grok-4-1-fast"
+      - "gemini-3-flash-preview"
+      - "kimi-k2-instruct-0905"
+      - "qwen3-235b-a22b-instruct-2507"
+      - "deepseek-v3p2"
+      - "minimax-m2p1"
+      - "Meta-Llama-3.1-8B-Instruct-Turbo"
+      - "Mistral-Small-24B-Instruct-2501"
+      - "gemma-3n-E4B-it"
+    probing:
+      - "llama-3-8b"
+      - "mistral-7b"
+      - "flan-t5-xxl"
+      - "mixtral-8x22b"
+
+# =============================================================================
+# PRICING (USD per 1M tokens, as of 2026-02-07)
+# =============================================================================
+pricing_usd_per_1m_tokens:
+  # --- DMLR-safe models (recommended for baselines) ---
+  openai:
+    gpt-4o:               {input: 2.50,  output: 10.00}
+    gpt-4.1:              {input: 2.00,  output:  8.00}
+    gpt-4.1-mini:         {input: 0.40,  output:  1.60}
+    gpt-4.1-nano:         {input: 0.10,  output:  0.40}
+    _default:             {input: 2.50,  output: 10.00}
+  anthropic:
+    claude-sonnet-4-5:    {input: 3.00,  output: 15.00}
+    _default:             {input: 3.00,  output: 15.00}
+  google:
+    gemini-2.0-flash:     {input: 0.10,  output:  0.40}
+    gemini-2.5-flash:     {input: 0.30,  output:  2.50}
+    _default:             {input: 0.30,  output:  2.50}
+  xai:
+    grok-4:               {input: 3.00,  output: 15.00}
+    _default:             {input: 3.00,  output: 15.00}
+  fireworks:
+    deepseek-v3p1:        {input: 0.15,  output:  0.75}
+    _default:             {input: 1.00,  output:  5.00}
+  together:
+    meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo: {input: 0.88, output: 0.88}
+    microsoft/phi-4:      {input: 0.13,  output:  0.50}
+    _default:             {input: 0.15,  output:  0.60}
+  ollama:
+    _default:             {input: 0.0,   output:  0.0}
+
+  # --- CogSci models (reference only, DO NOT use for DMLR) ---
+  # openai:  gpt-5-mini            {input: 0.25,  output:  2.00}
+  # anthropic: claude-haiku-4-5    {input: 1.00,  output:  5.00}
+  # xai:     grok-4-1-fast         {input: 0.20,  output:  0.50}
+  # google:  gemini-3-flash        {input: 0.50,  output:  3.00}
+  # fireworks: kimi-k2             {input: 0.60,  output:  2.50}
+  # fireworks: qwen3-235b          {input: 0.22,  output:  0.88}
+  # fireworks: deepseek-v3p2       {input: 0.56,  output:  1.68}
+  # fireworks: minimax-m2p1        {input: 0.30,  output:  1.20}
+  # together: llama-3.1-8b         {input: 0.18,  output:  0.18}
+  # together: mistral-small-24b    {input: 0.10,  output:  0.30}
+  # together: gemma-3n-e4b         {input: 0.03,  output:  0.03}
