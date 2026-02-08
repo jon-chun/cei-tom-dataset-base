@@ -25,8 +25,10 @@ import math
 import os
 import random
 import sys
+import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import combinations
@@ -118,6 +120,16 @@ OPENAI_COMPAT_ENDPOINTS: dict[str, str] = {
     "fireworks": "https://api.fireworks.ai/inference/v1/chat/completions",
 }
 
+# Per-provider max concurrent requests (shared across all models from same provider)
+PROVIDER_CONCURRENCY: dict[str, int] = {
+    "openai": 10,
+    "anthropic": 5,
+    "xai": 10,
+    "google": 10,
+    "together": 8,    # shared by Llama-3.1-70B + Phi-4
+    "fireworks": 8,
+}
+
 
 def _short_model_name(model_id: str) -> str:
     """Derive a CLI-friendly short name from a full model ID.
@@ -178,34 +190,40 @@ def get_pricing(config: dict[str, Any]) -> dict[str, dict[str, dict[str, float]]
 
 @dataclass
 class APICallTracker:
-    """Track API calls per model and total, with safety limits."""
+    """Track API calls per model and total, with safety limits (thread-safe)."""
 
     model_counts: dict[str, int] = field(default_factory=dict)
     total_count: int = 0
     model_max: int = 500
     total_max: int = 2000
 
+    def __post_init__(self) -> None:
+        self._lock = threading.Lock()
+
     def increment(self, model_id: str) -> bool:
-        self.model_counts[model_id] = self.model_counts.get(model_id, 0) + 1
-        self.total_count += 1
-        return (
-            self.model_counts[model_id] <= self.model_max
-            and self.total_count <= self.total_max
-        )
+        with self._lock:
+            self.model_counts[model_id] = self.model_counts.get(model_id, 0) + 1
+            self.total_count += 1
+            return (
+                self.model_counts[model_id] <= self.model_max
+                and self.total_count <= self.total_max
+            )
 
     def check_limits(self, model_id: str) -> tuple[bool, str]:
-        if self.model_counts.get(model_id, 0) >= self.model_max:
-            return False, f"Model {model_id} reached limit ({self.model_max})"
-        if self.total_count >= self.total_max:
-            return False, f"Total calls reached limit ({self.total_max})"
-        return True, ""
+        with self._lock:
+            if self.model_counts.get(model_id, 0) >= self.model_max:
+                return False, f"Model {model_id} reached limit ({self.model_max})"
+            if self.total_count >= self.total_max:
+                return False, f"Total calls reached limit ({self.total_max})"
+            return True, ""
 
     def summary(self) -> dict[str, Any]:
-        return {
-            "total": self.total_count,
-            "limit": self.total_max,
-            "per_model": dict(self.model_counts),
-        }
+        with self._lock:
+            return {
+                "total": self.total_count,
+                "limit": self.total_max,
+                "per_model": dict(self.model_counts),
+            }
 
 
 @dataclass
@@ -219,6 +237,48 @@ class RetryConfig:
         d = min(self.base_delay * (2 ** attempt), self.max_delay)
         jitter = d * self.jitter_factor * (2 * random.random() - 1)
         return max(0.1, d + jitter)
+
+    def delay_rate_limit(
+        self, attempt: int, retry_after: Optional[float] = None,
+    ) -> float:
+        """Longer backoff for HTTP 429 rate-limit responses."""
+        if retry_after and retry_after > 0:
+            return retry_after + self.jitter_factor * random.random()
+        d = min(self.base_delay * (2 ** (attempt + 1)), self.max_delay)
+        jitter = d * self.jitter_factor * (2 * random.random() - 1)
+        return max(1.0, d + jitter)
+
+
+class ProviderThrottler:
+    """Per-provider concurrency limiter with adaptive rate-limit backoff.
+
+    Each provider gets a semaphore controlling max concurrent requests
+    and an adaptive delay that increases on 429s and decays on success.
+    """
+
+    def __init__(self, max_concurrent: int = 10, min_delay: float = 0.05) -> None:
+        self.semaphore = threading.Semaphore(max_concurrent)
+        self._delay = min_delay
+        self._min_delay = min_delay
+        self._lock = threading.Lock()
+
+    @property
+    def delay(self) -> float:
+        with self._lock:
+            return self._delay
+
+    def on_rate_limit(self, retry_after: Optional[float] = None) -> None:
+        """Increase inter-request delay after a 429 response."""
+        with self._lock:
+            if retry_after and retry_after > 0:
+                self._delay = max(self._delay, retry_after / 2)
+            else:
+                self._delay = min(self._delay * 2 + 0.5, 30.0)
+
+    def on_success(self) -> None:
+        """Gradually reduce delay after successful requests."""
+        with self._lock:
+            self._delay = max(self._delay * 0.95, self._min_delay)
 
 
 class DualLogger:
@@ -1033,6 +1093,142 @@ def _parse_emotion_response(text: str) -> Optional[str]:
     return None
 
 
+class _ProgressTracker:
+    """Real-time progress tracking for parallel baseline execution.
+
+    Thread-safe counters for completed/cached/failed tasks, retry attempts,
+    rate-limit hits, and per-model cost estimation.  Used by a background
+    reporter thread to print status every 60 seconds.
+    """
+
+    def __init__(
+        self,
+        total_tasks: int,
+        model_registry: dict[str, dict[str, str]],
+        pricing: dict[str, Any],
+        est_input_tokens: int = 800,
+        est_output_tokens: int = 200,
+    ) -> None:
+        self._lock = threading.Lock()
+        self.total_tasks = total_tasks
+        self.completed = 0
+        self.cached = 0
+        self.api_success = 0
+        self.api_failed = 0
+        self.retries = 0
+        self.rate_limits = 0
+        self.per_model: dict[str, dict[str, int]] = {}
+        self.start_time = time.time()
+        self._model_registry = model_registry
+        self._pricing = pricing
+        self._est_input = est_input_tokens
+        self._est_output = est_output_tokens
+
+    def record_complete(self, model_name: str, *, cached: bool = False) -> None:
+        with self._lock:
+            self.completed += 1
+            m = self.per_model.setdefault(
+                model_name, {"success": 0, "failed": 0, "cached": 0},
+            )
+            if cached:
+                self.cached += 1
+                m["cached"] += 1
+            else:
+                self.api_success += 1
+                m["success"] += 1
+
+    def record_failure(self, model_name: str) -> None:
+        with self._lock:
+            self.completed += 1
+            m = self.per_model.setdefault(
+                model_name, {"success": 0, "failed": 0, "cached": 0},
+            )
+            self.api_failed += 1
+            m["failed"] += 1
+
+    def record_retry(self, *, is_rate_limit: bool = False) -> None:
+        with self._lock:
+            self.retries += 1
+            if is_rate_limit:
+                self.rate_limits += 1
+
+    def _model_cost_usd(self, model_name: str, n_calls: int) -> float:
+        cfg = self._model_registry.get(model_name, {})
+        provider = cfg.get("provider", "")
+        model_id = cfg.get("model_id", "")
+        pp = self._pricing.get(provider, {})
+        mp = (
+            pp.get(model_id)
+            or pp.get(model_id.split("/")[-1])
+            or pp.get("_default", {})
+        )
+        inp = mp.get("input", 0)
+        out = mp.get("output", 0)
+        return n_calls * (self._est_input * inp + self._est_output * out) / 1_000_000
+
+    def estimated_cost(self) -> float:
+        with self._lock:
+            return sum(
+                self._model_cost_usd(m, c["success"])
+                for m, c in self.per_model.items()
+            )
+
+    def status_line(self) -> str:
+        with self._lock:
+            elapsed = time.time() - self.start_time
+            pct = (
+                self.completed / self.total_tasks * 100
+                if self.total_tasks else 0
+            )
+            rate = self.completed / elapsed if elapsed > 0 else 0
+            remaining = (
+                (self.total_tasks - self.completed) / rate if rate > 0 else 0
+            )
+
+            elapsed_m, elapsed_s = divmod(int(elapsed), 60)
+            eta_m, eta_s = divmod(int(remaining), 60)
+            cost = sum(
+                self._model_cost_usd(m, c["success"])
+                for m, c in self.per_model.items()
+            )
+
+            return (
+                f"  [{elapsed_m:02d}:{elapsed_s:02d}] "
+                f"{self.completed}/{self.total_tasks} ({pct:.0f}%) | "
+                f"API: {self.api_success} ok, {self.api_failed} fail, "
+                f"{self.cached} cached, {self.retries} retries "
+                f"({self.rate_limits} 429s) | "
+                f"~${cost:.2f} | "
+                f"ETA {eta_m}m{eta_s:02d}s"
+            )
+
+    def final_summary(self) -> str:
+        with self._lock:
+            elapsed = time.time() - self.start_time
+            elapsed_m, elapsed_s = divmod(int(elapsed), 60)
+            cost = sum(
+                self._model_cost_usd(m, c["success"])
+                for m, c in self.per_model.items()
+            )
+            lines = [
+                f"  Completed {self.completed}/{self.total_tasks} in "
+                f"{elapsed_m}m{elapsed_s:02d}s",
+                f"  API calls: {self.api_success} success, "
+                f"{self.api_failed} failed, {self.cached} cached",
+                f"  Retries: {self.retries} total "
+                f"({self.rate_limits} rate-limited)",
+                f"  Estimated cost: ~${cost:.2f}",
+            ]
+            for m in sorted(self.per_model):
+                c = self.per_model[m]
+                mc = self._model_cost_usd(m, c["success"])
+                lines.append(
+                    f"    {m}: {c['success']} ok, {c['failed']} fail, "
+                    f"{c['cached']} cached (~${mc:.3f})"
+                )
+            return "\n".join(lines)
+
+
 def stage_run_baselines(
     data: dict[str, list[dict[str, str]]],
     logger: DualLogger,
@@ -1045,8 +1241,18 @@ def stage_run_baselines(
     dry_run: bool = False,
     resume: bool = False,
 ) -> dict[str, Any]:
-    """R1: Run baseline models on all 300 scenarios."""
-    logger.info("[R1] Baseline inference")
+    """R1: Run baseline models on all scenarios with parallel execution.
+
+    Architecture:
+      - All models run concurrently via ThreadPoolExecutor
+      - Per-provider semaphores limit concurrent requests (e.g., Together=8
+        shared by Llama-70B + Phi-4)
+      - Adaptive throttling: 429 responses increase per-provider delay;
+        successful requests decay it back
+      - Tasks interleaved round-robin across models for balanced utilization
+      - Thread-safe checkpointing every 50 completions per model
+    """
+    logger.info("[R1] Baseline inference (parallel)")
     if models is None:
         models = list(model_registry.keys())
 
@@ -1113,95 +1319,213 @@ def stage_run_baselines(
 
     # Load checkpoint if resuming
     checkpoint_path = output_dir / "baseline_checkpoint.json"
-    completed: dict[str, dict[str, str]] = {}  # key = "model::id" → response
+    completed: dict[str, str] = {}  # key = "model::id" → response text
     if resume and checkpoint_path.exists():
         with open(checkpoint_path) as f:
             completed = json.load(f)
         logger.info(f"  Resumed from checkpoint: {len(completed)} results loaded")
 
-    results: dict[str, list[dict[str, Any]]] = {m: [] for m in available}
-    errors: list[str] = []
-
+    # Create per-provider throttlers for rate limiting
+    provider_throttlers: dict[str, ProviderThrottler] = {}
     for model_name in available:
-        logger.info(f"  Running {model_name} on {len(scenarios)} scenarios...")
-        for i, sc in enumerate(scenarios):
-            key = f"{model_name}::{sc['id']}"
-            if key in completed:
-                # Use cached result
-                raw = completed[key]
-                emotion = _parse_emotion_response(raw)
+        provider = model_registry[model_name]["provider"]
+        if provider not in provider_throttlers:
+            max_conc = PROVIDER_CONCURRENCY.get(provider, 5)
+            provider_throttlers[provider] = ProviderThrottler(max_conc)
+
+    # Thread-safe shared state
+    results: dict[str, list[dict[str, Any]]] = {m: [] for m in available}
+    results_lock = threading.Lock()
+    checkpoint_lock = threading.Lock()
+    progress_counts: dict[str, int] = {m: 0 for m in available}
+    errors: list[str] = []
+    errors_lock = threading.Lock()
+    n_scenarios = len(scenarios)
+    total_tasks = n_scenarios * len(available)
+
+    # Progress tracker for periodic status reports (every 60s)
+    tracker = _ProgressTracker(total_tasks, model_registry, pricing)
+
+    def _process_one(model_name: str, sc: dict[str, str]) -> None:
+        """Process a single (model, scenario) pair with provider throttling."""
+        key = f"{model_name}::{sc['id']}"
+
+        # Check cache
+        with checkpoint_lock:
+            cached_response = completed.get(key)
+        if cached_response is not None:
+            emotion = _parse_emotion_response(cached_response)
+            with results_lock:
                 results[model_name].append({
-                    "id": sc["id"],
-                    "subtype": sc["subtype"],
-                    "gold": sc["gold_standard"],
-                    "predicted": emotion,
-                    "raw_response": raw,
-                    "cached": True,
+                    "id": sc["id"], "subtype": sc["subtype"],
+                    "gold": sc["gold_standard"], "predicted": emotion,
+                    "raw_response": cached_response, "cached": True,
                 })
-                continue
+            tracker.record_complete(model_name, cached=True)
+            return
 
-            ok, reason = call_tracker.check_limits(model_name)
-            if not ok:
-                logger.error(f"    Safety limit reached: {reason}")
-                break
+        # Check safety limits
+        ok, reason = call_tracker.check_limits(model_name)
+        if not ok:
+            logger.error(f"    Safety limit reached: {reason}")
+            tracker.record_failure(model_name)
+            return
 
-            prompt = DMLR_BASELINE_PROMPT.format(
-                situation=sc["situation"],
-                utterance=sc["utterance"],
-                speaker_role=sc["speaker_role"],
-                listener_role=sc["listener_role"],
-            )
+        prompt = DMLR_BASELINE_PROMPT.format(
+            situation=sc["situation"], utterance=sc["utterance"],
+            speaker_role=sc["speaker_role"], listener_role=sc["listener_role"],
+        )
 
-            raw_response = None
-            for attempt in range(retry_config.max_retries):
+        provider = model_registry[model_name]["provider"]
+        throttler = provider_throttlers[provider]
+        raw_response = None
+
+        for attempt in range(retry_config.max_retries):
+            wait = 0.0
+            success = False
+            # Acquire provider semaphore — limits concurrent requests to this
+            # provider across all its models (e.g., Together: Llama + Phi)
+            with throttler.semaphore:
+                # Adaptive inter-request delay (increases on 429s, decays on success)
+                d = throttler.delay
+                if d > 0:
+                    time.sleep(d)
                 try:
                     raw_response = _call_model(model_name, prompt, model_registry)
                     call_tracker.increment(model_name)
-                    break
+                    throttler.on_success()
+                    success = True
                 except Exception as e:
-                    delay = retry_config.delay(attempt)
-                    logger.warning(
-                        f"    Retry {attempt + 1}/{retry_config.max_retries} "
-                        f"for {model_name} scenario {sc['id']}: {e}  "
-                        f"(waiting {delay:.1f}s)"
+                    is_rate_limit = (
+                        hasattr(e, "code") and getattr(e, "code", 0) == 429
                     )
-                    time.sleep(delay)
+                    tracker.record_retry(is_rate_limit=is_rate_limit)
+                    if is_rate_limit:
+                        retry_after = None
+                        if hasattr(e, "headers"):
+                            ra = getattr(e, "headers", {}).get("Retry-After")
+                            if ra:
+                                try:
+                                    retry_after = float(ra)
+                                except (ValueError, TypeError):
+                                    pass
+                        throttler.on_rate_limit(retry_after)
+                        wait = retry_config.delay_rate_limit(
+                            attempt, retry_after,
+                        )
+                        logger.warning(
+                            f"    429 {model_name} scenario {sc['id']} "
+                            f"(attempt {attempt + 1}, waiting {wait:.1f}s)"
+                        )
+                    else:
+                        wait = retry_config.delay(attempt)
+                        logger.warning(
+                            f"    Retry {attempt + 1}/{retry_config.max_retries} "
+                            f"for {model_name} scenario {sc['id']}: {e}  "
+                            f"(waiting {wait:.1f}s)"
+                        )
+            # Semaphore released — sleep outside to free the slot for others
+            if success:
+                break
+            time.sleep(wait)
 
-            emotion = _parse_emotion_response(raw_response or "")
+        emotion = _parse_emotion_response(raw_response or "")
+        with results_lock:
             results[model_name].append({
-                "id": sc["id"],
-                "subtype": sc["subtype"],
-                "gold": sc["gold_standard"],
-                "predicted": emotion,
-                "raw_response": raw_response,
-                "cached": False,
+                "id": sc["id"], "subtype": sc["subtype"],
+                "gold": sc["gold_standard"], "predicted": emotion,
+                "raw_response": raw_response, "cached": False,
             })
-            completed[key] = raw_response or ""
 
-            # Checkpoint every 50 calls
-            if (i + 1) % 50 == 0:
+        if raw_response is not None:
+            tracker.record_complete(model_name)
+        else:
+            tracker.record_failure(model_name)
+
+        # Update checkpoint
+        with checkpoint_lock:
+            completed[key] = raw_response or ""
+            progress_counts[model_name] = progress_counts.get(model_name, 0) + 1
+            if progress_counts[model_name] % 50 == 0:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 with open(checkpoint_path, "w") as f:
                     json.dump(completed, f)
-                logger.info(f"    {model_name}: {i + 1}/{len(scenarios)} done")
+                logger.info(
+                    f"    {model_name}: "
+                    f"{progress_counts[model_name]}/{n_scenarios} done"
+                )
 
-        # Final checkpoint per model
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with open(checkpoint_path, "w") as f:
-            json.dump(completed, f)
+    # Build interleaved task list (round-robin across models for balanced
+    # provider utilization — prevents all threads piling on one provider)
+    tasks: list[tuple[str, dict[str, str]]] = []
+    for i in range(n_scenarios):
+        for model_name in available:
+            tasks.append((model_name, scenarios[i]))
 
-    # Save full results
+    # Worker count = sum of active provider concurrency limits (capped)
+    active_providers = {model_registry[m]["provider"] for m in available}
+    max_workers = min(
+        sum(PROVIDER_CONCURRENCY.get(p, 5) for p in active_providers), 60,
+    )
+
+    logger.info(
+        f"  Parallel execution: {len(available)} models, "
+        f"{n_scenarios} scenarios, {total_tasks} total tasks, "
+        f"{max_workers} workers"
+    )
+    providers_str = ", ".join(
+        f"{p}={PROVIDER_CONCURRENCY.get(p, 5)}"
+        for p in sorted(active_providers)
+    )
+    logger.info(f"  Provider concurrency: {providers_str}")
+
+    # Start periodic status reporter (fires every 60 seconds)
+    reporter_stop = threading.Event()
+
+    def _status_reporter() -> None:
+        while not reporter_stop.wait(timeout=60):
+            logger.info(tracker.status_line())
+
+    reporter_thread = threading.Thread(target=_status_reporter, daemon=True)
+    reporter_thread.start()
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(_process_one, m, sc) for m, sc in tasks
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                with errors_lock:
+                    errors.append(str(e))
+                logger.error(f"    Unhandled error: {e}")
+
+    # Stop reporter and print final summary
+    reporter_stop.set()
+    reporter_thread.join(timeout=2)
+    logger.info(tracker.final_summary())
+    if errors:
+        logger.warning(f"  {len(errors)} errors encountered")
+
+    # Final checkpoint + results
     output_dir.mkdir(parents=True, exist_ok=True)
+    with open(checkpoint_path, "w") as f:
+        json.dump(completed, f)
     results_path = output_dir / "baseline_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     logger.info(f"  Results saved to {results_path}")
 
+    elapsed = time.time() - tracker.start_time
     return {
         "status": "complete",
         "models": available,
         "api_calls": call_tracker.summary(),
         "results_path": str(results_path),
+        "elapsed_seconds": round(elapsed, 1),
+        "estimated_cost_usd": round(tracker.estimated_cost(), 2),
+        "errors": len(errors),
     }
 
 
