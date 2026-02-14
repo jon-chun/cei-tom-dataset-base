@@ -155,9 +155,9 @@ data/human-gold/                     # Input: 5 merged CSVs
 | `sd_speaker_role` | Speaker's role/relationship |
 | `sd_listener_role` | Listener's role/relationship |
 | `gold_standard` | Adjudicated ground truth emotion |
-| `sl_plutchik_primary_<Annotator_N>` | Per-annotator emotion label |
-| `sl_v_<N>`, `sl_a_<N>`, `sl_d_<N>` | Per-annotator VAD ratings (7-point text labels) |
-| `sl_confidence_<Annotator_N>` | Per-annotator confidence |
+| `sl_plutchik_primary_<Name>` | Per-annotator emotion label |
+| `sl_v_<Name>`, `sl_a_<Name>`, `sl_d_<Name>` | Per-annotator VAD ratings (7-point text labels) |
+| `sl_confidence_<Name>` | Per-annotator confidence |
 
 ---
 
