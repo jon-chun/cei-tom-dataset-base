@@ -76,24 +76,24 @@ The paper includes baseline results from 7 models.  Models and pricing are defin
 
 | Model | Provider | API Key Env Var | Est. Cost/300 |
 |-------|----------|-----------------|---------------|
-| GPT-4o | OpenAI | `OPENAI_API_KEY` | $1.20 |
-| Claude Sonnet 4.5 | Anthropic | `ANTHROPIC_API_KEY` | $1.62 |
-| Grok-4 | xAI | `XAI_API_KEY` | $1.62 |
-| Gemini 2.5 Flash | Google | `GOOGLE_API_KEY` | $0.22 |
-| Llama-3.1-70B | Together | `TOGETHER_API_KEY` | $0.26 |
+| GPT-5-mini | OpenAI | `OPENAI_API_KEY` | $0.15 |
+| Claude Sonnet 4.5 | Anthropic | `ANTHROPIC_API_KEY` | $1.53 |
+| Grok-4.1-fast | xAI | `XAI_API_KEY` | $0.09 |
+| Gemini 2.5 Flash | Google | `GOOGLE_API_KEY` | $0.18 |
+| Llama-3.1-70B | Together | `TOGETHER_API_KEY` | $0.34 |
 | DeepSeek V3.1 | Fireworks | `FIREWORKS_API_KEY` | $0.08 |
-| Phi-4 | Together | `TOGETHER_API_KEY` | $0.06 |
+| Qwen2.5-7B | Together | `TOGETHER_API_KEY` | $0.12 |
 
 ### Configure API Keys
 
 Set one or more of:
 
 ```bash
-export OPENAI_API_KEY="sk-..."          # For GPT-4o
+export OPENAI_API_KEY="sk-..."          # For GPT-5-mini
 export ANTHROPIC_API_KEY="sk-ant-..."   # For Claude Sonnet 4.5
-export XAI_API_KEY="xai-..."            # For Grok-4
+export XAI_API_KEY="xai-..."            # For Grok-4.1-fast
 export GOOGLE_API_KEY="..."             # For Gemini 2.5 Flash
-export TOGETHER_API_KEY="..."           # For Llama-3.1-70B and Phi-4
+export TOGETHER_API_KEY="..."           # For Llama-3.1-70B and Qwen2.5-7B
 export FIREWORKS_API_KEY="..."          # For DeepSeek V3.1
 ```
 
@@ -121,7 +121,7 @@ python scripts/run_pipeline_dmlr2026.py --stage run_baselines \
 python scripts/run_pipeline_dmlr2026.py --stage run_baselines --resume
 ```
 
-**Estimated API costs:** ~$5.07 for all 7 models (2,100 calls), ~$3.14 for recommended 4 (GPT-4o + Claude Sonnet + Llama-70B + Phi-4).
+**Estimated API costs:** ~$2.49 for all 7 models (2,100 calls). Use `--dry-run` for exact estimates.
 
 ### Analyze Baseline Results
 

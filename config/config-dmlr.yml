@@ -1,25 +1,25 @@
 # =============================================================================
 # CEI-ToM DMLR 2026 Configuration
 # =============================================================================
-# IMPORTANT: DMLR baselines must use only the models listed under
-# models.complete. See excluded_models below for the full exclusion list.
+# IMPORTANT: The cogsci_off_limits section below documents models used in the
+# CogSci 2026 companion paper (different venue/audience). Overlap is acceptable.
 
 llm_inference:
   # Model sets by execution mode
   models:
     # TEST mode: single model for quick validation
     test:
-      - id: "gpt-4o"
+      - id: "gpt-5-mini"
         provider: "openai"
 
     # COMPLETE mode: DMLR baseline models
     complete:
       # Commercial API models
-      - id: "gpt-4o"
+      - id: "gpt-5-mini"
         provider: "openai"
       - id: "claude-sonnet-4-5"
         provider: "anthropic"
-      - id: "grok-4"
+      - id: "grok-4-1-fast-non-reasoning"
         provider: "xai"
       - id: "gemini-2.5-flash"
         provider: "google"
@@ -28,11 +28,11 @@ llm_inference:
         provider: "together"
       - id: "accounts/fireworks/models/deepseek-v3p1"
         provider: "fireworks"
-      - id: "microsoft/phi-4"
-        provider: "openrouter"
+      - id: "Qwen/Qwen2.5-7B-Instruct-Turbo"
+        provider: "together"
 
-  # Excluded models — DO NOT use for DMLR baselines
-  excluded_models:
+  # Models used in CogSci 2026 companion paper (different venue, for reference)
+  cogsci_off_limits:
     behavioral:
       - "gpt-5-mini"
       - "claude-haiku-4-5"
@@ -57,11 +57,8 @@ llm_inference:
 pricing_usd_per_1m_tokens:
   # --- DMLR-safe models (recommended for baselines) ---
   openai:
-    gpt-4o:               {input: 2.50,  output: 10.00}
-    gpt-4.1:              {input: 2.00,  output:  8.00}
-    gpt-4.1-mini:         {input: 0.40,  output:  1.60}
-    gpt-4.1-nano:         {input: 0.10,  output:  0.40}
-    _default:             {input: 2.50,  output: 10.00}
+    gpt-5-mini:           {input: 0.25,  output:  2.00}
+    _default:             {input: 0.25,  output:  2.00}
   anthropic:
     claude-sonnet-4-5:    {input: 3.00,  output: 15.00}
     _default:             {input: 3.00,  output: 15.00}
@@ -70,21 +67,19 @@ pricing_usd_per_1m_tokens:
     gemini-2.5-flash:     {input: 0.30,  output:  2.50}
     _default:             {input: 0.30,  output:  2.50}
   xai:
-    grok-4:               {input: 3.00,  output: 15.00}
-    _default:             {input: 3.00,  output: 15.00}
+    grok-4-1-fast-non-reasoning: {input: 0.20, output: 0.50}
+    _default:             {input: 0.20,  output:  0.50}
   fireworks:
     deepseek-v3p1:        {input: 0.15,  output:  0.75}
     _default:             {input: 1.00,  output:  5.00}
   together:
     meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo: {input: 0.88, output: 0.88}
+    Qwen/Qwen2.5-7B-Instruct-Turbo: {input: 0.30, output: 0.30}
     _default:             {input: 0.15,  output:  0.60}
-  openrouter:
-    microsoft/phi-4:      {input: 0.13,  output:  0.50}
-    _default:             {input: 0.50,  output:  2.00}
   ollama:
     _default:             {input: 0.0,   output:  0.0}
 
-  # --- Excluded models (reference only, DO NOT use for DMLR) ---
+  # --- CogSci models (reference only, DO NOT use for DMLR) ---
   # openai:  gpt-5-mini            {input: 0.25,  output:  2.00}
   # anthropic: claude-haiku-4-5    {input: 1.00,  output:  5.00}
   # xai:     grok-4-1-fast         {input: 0.20,  output:  0.50}

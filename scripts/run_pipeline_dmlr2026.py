@@ -4,8 +4,8 @@
 Implements all computational tasks for the DMLR dataset paper (R0–R9):
   Phase 0 (local):  Data verification, κ, power distribution, human performance,
                      VAD analysis, scale justification, stratified splits, examples
-  Phase 1 (API):    Baseline inference (models loaded from
-                     config/config-dmlr.yml)
+  Phase 1 (API):    CogSci-safe baseline inference (models loaded from
+                     config/config-dmlr.yml — none overlap with CogSci 2026)
   Phase 2 (local):  Baseline analysis, LaTeX tables, figures
 
 Usage:
@@ -25,19 +25,15 @@ import math
 import os
 import random
 import sys
-import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -88,8 +84,8 @@ POWER_KEYWORDS_LOW_TO_HIGH = [
     "junior", "intern", "mentee", "son", "daughter", "patient",
 ]
 
-# DMLR-specific prompt: asks about the SPEAKER's emotion.
-# This is the ground-truth annotation target.
+# DMLR-specific prompt: asks about the SPEAKER's emotion (distinct from CogSci's
+# LISTENER framing).  This is the ground-truth annotation target.
 DMLR_BASELINE_PROMPT = """You are evaluating a communication scenario.  Based on the \
 context, determine the primary emotion the SPEAKER is most likely experiencing when \
 they make this utterance.
@@ -104,6 +100,73 @@ Choose exactly one of: joy, trust, fear, surprise, sadness, disgust, anger, anti
 Respond with ONLY a JSON object — no extra text:
 {{"emotion": "<one of the 8 emotions>"}}"""
 
+# Chain-of-thought prompt: asks model to reason step-by-step before answering.
+DMLR_COT_PROMPT = """You are analyzing a social interaction to determine the speaker's \
+emotional state.
+
+SCENARIO
+Situation: {situation}
+Speaker ({speaker_role}) says to Listener ({listener_role}):
+"{utterance}"
+
+Think through this step by step:
+1. Literal meaning: What does the utterance literally say?
+2. Contextual cues: What does the situation suggest about what is really going on?
+3. Pragmatic interpretation: Is there a gap between what is said and what is meant?
+4. Speaker's internal state: What is the speaker likely feeling beneath the surface?
+5. Primary emotion: Which single emotion best captures the speaker's state?
+
+Choose ONE emotion from: joy, trust, fear, surprise, sadness, disgust, anger, anticipation
+
+First, provide your step-by-step reasoning.
+Then on the final line, respond with ONLY a JSON object:
+{{"emotion": "<one of the 8 emotions>"}}"""
+
+# Few-shot prompt: provides 3 worked examples before the target scenario.
+DMLR_FEWSHOT_PROMPT = """You are evaluating communication scenarios to determine the \
+primary emotion the SPEAKER is most likely experiencing.
+
+Here are three examples:
+
+EXAMPLE 1 (Sarcasm/Irony):
+Situation: After a colleague takes credit for a project the speaker largely completed, \
+the speaker responds in a team meeting.
+Speaker (team member) says to Listener (colleague): "Oh, congratulations on YOUR \
+amazing work. I'm sure all those late nights I spent were just for fun."
+Answer: {{"emotion": "anger"}}
+
+EXAMPLE 2 (Deflection/Misdirection):
+Situation: A friend asks the speaker how they're coping after a recent breakup.
+Speaker (friend) says to Listener (friend): "Have you tried the new coffee place on \
+Main Street? Their lattes are incredible."
+Answer: {{"emotion": "sadness"}}
+
+EXAMPLE 3 (Strategic Politeness):
+Situation: A junior employee is asked to work overtime for the third weekend in a row \
+by their manager.
+Speaker (employee) says to Listener (manager): "Of course, I'm happy to help. \
+Whatever the team needs."
+Answer: {{"emotion": "anger"}}
+
+Now evaluate this scenario:
+
+SCENARIO
+Situation: {situation}
+Speaker ({speaker_role}) says to Listener ({listener_role}):
+"{utterance}"
+
+Choose exactly one of: joy, trust, fear, surprise, sadness, disgust, anger, anticipation
+
+Respond with ONLY a JSON object — no extra text:
+{{"emotion": "<one of the 8 emotions>"}}"""
+
+# Map prompt mode names to templates
+PROMPT_TEMPLATES = {
+    "zero-shot": DMLR_BASELINE_PROMPT,
+    "cot": DMLR_COT_PROMPT,
+    "few-shot": DMLR_FEWSHOT_PROMPT,
+}
+
 # Provider → API key environment variable
 PROVIDER_API_KEYS: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
@@ -112,7 +175,6 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "together": "TOGETHER_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
 }
 
 # OpenAI-compatible chat/completions endpoints (all except anthropic and google)
@@ -121,18 +183,6 @@ OPENAI_COMPAT_ENDPOINTS: dict[str, str] = {
     "xai": "https://api.x.ai/v1/chat/completions",
     "together": "https://api.together.xyz/v1/chat/completions",
     "fireworks": "https://api.fireworks.ai/inference/v1/chat/completions",
-    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-}
-
-# Per-provider max concurrent requests (shared across all models from same provider)
-PROVIDER_CONCURRENCY: dict[str, int] = {
-    "openai": 10,
-    "anthropic": 5,
-    "xai": 5,
-    "google": 10,
-    "together": 4,    # Llama-3.1-70B
-    "fireworks": 4,
-    "openrouter": 4,
 }
 
 
@@ -140,7 +190,7 @@ def _short_model_name(model_id: str) -> str:
     """Derive a CLI-friendly short name from a full model ID.
 
     Examples:
-        "gpt-4o"                                    → "gpt-4o"
+        "gpt-5-mini"                                    → "gpt-5-mini"
         "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" → "llama-3.1-70b"
         "accounts/fireworks/models/deepseek-v3p1"   → "deepseek-v3p1"
         "microsoft/phi-4"                           → "phi-4"
@@ -166,7 +216,7 @@ def build_model_registry(
     """Build model registry from config, keyed by short name.
 
     Returns dict like:
-        {"gpt-4o": {"provider": "openai", "model_id": "gpt-4o",
+        {"gpt-5-mini": {"provider": "openai", "model_id": "gpt-5-mini",
                      "api_key_env": "OPENAI_API_KEY"}, ...}
     """
     models = config.get("llm_inference", {}).get("models", {}).get(mode, [])
@@ -189,51 +239,45 @@ def get_pricing(config: dict[str, Any]) -> dict[str, dict[str, dict[str, float]]
 
 
 # ---------------------------------------------------------------------------
-# Utility classes
+# Utility classes (patterned after run_pipeline_facct2026.py)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class APICallTracker:
-    """Track API calls per model and total, with safety limits (thread-safe)."""
+    """Track API calls per model and total, with safety limits."""
 
     model_counts: dict[str, int] = field(default_factory=dict)
     total_count: int = 0
     model_max: int = 500
     total_max: int = 2000
 
-    def __post_init__(self) -> None:
-        self._lock = threading.Lock()
-
     def increment(self, model_id: str) -> bool:
-        with self._lock:
-            self.model_counts[model_id] = self.model_counts.get(model_id, 0) + 1
-            self.total_count += 1
-            return (
-                self.model_counts[model_id] <= self.model_max
-                and self.total_count <= self.total_max
-            )
+        self.model_counts[model_id] = self.model_counts.get(model_id, 0) + 1
+        self.total_count += 1
+        return (
+            self.model_counts[model_id] <= self.model_max
+            and self.total_count <= self.total_max
+        )
 
     def check_limits(self, model_id: str) -> tuple[bool, str]:
-        with self._lock:
-            if self.model_counts.get(model_id, 0) >= self.model_max:
-                return False, f"Model {model_id} reached limit ({self.model_max})"
-            if self.total_count >= self.total_max:
-                return False, f"Total calls reached limit ({self.total_max})"
-            return True, ""
+        if self.model_counts.get(model_id, 0) >= self.model_max:
+            return False, f"Model {model_id} reached limit ({self.model_max})"
+        if self.total_count >= self.total_max:
+            return False, f"Total calls reached limit ({self.total_max})"
+        return True, ""
 
     def summary(self) -> dict[str, Any]:
-        with self._lock:
-            return {
-                "total": self.total_count,
-                "limit": self.total_max,
-                "per_model": dict(self.model_counts),
-            }
+        return {
+            "total": self.total_count,
+            "limit": self.total_max,
+            "per_model": dict(self.model_counts),
+        }
 
 
 @dataclass
 class RetryConfig:
-    max_retries: int = 5
+    max_retries: int = 3
     base_delay: float = 2.0
     max_delay: float = 60.0
     jitter_factor: float = 0.25
@@ -242,48 +286,6 @@ class RetryConfig:
         d = min(self.base_delay * (2 ** attempt), self.max_delay)
         jitter = d * self.jitter_factor * (2 * random.random() - 1)
         return max(0.1, d + jitter)
-
-    def delay_rate_limit(
-        self, attempt: int, retry_after: Optional[float] = None,
-    ) -> float:
-        """Longer backoff for HTTP 429 rate-limit responses."""
-        if retry_after and retry_after > 0:
-            return retry_after + self.jitter_factor * random.random()
-        d = min(self.base_delay * (2 ** (attempt + 1)), self.max_delay)
-        jitter = d * self.jitter_factor * (2 * random.random() - 1)
-        return max(1.0, d + jitter)
-
-
-class ProviderThrottler:
-    """Per-provider concurrency limiter with adaptive rate-limit backoff.
-
-    Each provider gets a semaphore controlling max concurrent requests
-    and an adaptive delay that increases on 429s and decays on success.
-    """
-
-    def __init__(self, max_concurrent: int = 10, min_delay: float = 0.05) -> None:
-        self.semaphore = threading.Semaphore(max_concurrent)
-        self._delay = min_delay
-        self._min_delay = min_delay
-        self._lock = threading.Lock()
-
-    @property
-    def delay(self) -> float:
-        with self._lock:
-            return self._delay
-
-    def on_rate_limit(self, retry_after: Optional[float] = None) -> None:
-        """Increase inter-request delay after a 429 response."""
-        with self._lock:
-            if retry_after and retry_after > 0:
-                self._delay = max(self._delay, retry_after / 2)
-            else:
-                self._delay = min(self._delay * 2 + 0.5, 30.0)
-
-    def on_success(self) -> None:
-        """Gradually reduce delay after successful requests."""
-        with self._lock:
-            self._delay = max(self._delay * 0.95, self._min_delay)
 
 
 class DualLogger:
@@ -732,10 +734,7 @@ def stage_vad_analysis(
                 dist[dim] = {"mean": round(mean, 3), "sd": round(sd, 3), "n": len(vals)}
         results["distributions"][subtype] = dist
 
-    # Emotion-VAD consistency: mean valence per annotator's own emotion label
-    # Each annotator's valence rating is grouped by that annotator's own
-    # emotion label (not the gold standard), giving a cleaner measure of
-    # whether annotators' dimensional and categorical ratings align.
+    # Emotion-VAD consistency: mean valence per gold-standard emotion
     emotion_valence: dict[str, list[float]] = {e: [] for e in PLUTCHIK_EMOTIONS}
     for subtype in SUBTYPES:
         rows = data.get(subtype, [])
@@ -743,13 +742,13 @@ def stage_vad_analysis(
             continue
         names = detect_annotator_names(rows)
         for row in rows:
+            gs = row.get("gold_standard", "").strip().lower()
+            if gs not in emotion_valence:
+                continue
             for nm in names:
-                emo = row.get(f"sl_plutchik_primary_{nm}", "").strip().lower()
-                if emo not in emotion_valence:
-                    continue
                 v = vad_to_numeric(row.get(f"sl_v_{nm}", ""), "v")
                 if v is not None:
-                    emotion_valence[emo].append(v)
+                    emotion_valence[gs].append(v)
 
     for emo in PLUTCHIK_EMOTIONS:
         vals = emotion_valence[emo]
@@ -890,16 +889,6 @@ def stage_create_splits(
     for s in ["train", "val", "test"]:
         logger.info(f"  {s}: {proportions[s]['total']} scenarios  {proportions[s].get('by_subtype', {})}")
 
-    # Save splits to disk for reproducibility
-    splits_path = Path("reports/dmlr2026/splits.json")
-    splits_path.parent.mkdir(parents=True, exist_ok=True)
-    splits_path.write_text(json.dumps({
-        "seed": seed,
-        "fractions": {"train": train_frac, "val": val_frac, "test": round(test_frac, 2)},
-        "assignments": split_assignments,
-    }, indent=2))
-    logger.info(f"  Saved split assignments: {splits_path}")
-
     return {
         "seed": seed,
         "fractions": {"train": train_frac, "val": val_frac, "test": test_frac},
@@ -920,7 +909,7 @@ def stage_extract_examples(
 ) -> dict[str, Any]:
     """R7: Select candidate worked examples (prefer mixed signals & deflection)."""
     logger.info("[R7] Extracting candidate worked examples")
-    # Prefer subtypes that best showcase pragmatic diversity
+    # Prefer subtypes NOT used by CogSci paper (strategic-politeness is CogSci's example)
     preferred = ["deflection-misdirection", "mixed-signals", "passive-aggression"]
     candidates: list[dict[str, Any]] = []
 
@@ -985,6 +974,7 @@ def stage_extract_examples(
 
 def _call_openai_compat(
     endpoint: str, model_id: str, prompt: str, api_key: str,
+    max_tokens: int = 60,
 ) -> Optional[str]:
     """Call any OpenAI-compatible chat/completions endpoint.
 
@@ -992,33 +982,41 @@ def _call_openai_compat(
     """
     import urllib.request
 
-    body = json.dumps({
+    is_openai_new = endpoint == OPENAI_COMPAT_ENDPOINTS.get("openai") and (
+        model_id.startswith("gpt-5") or model_id.startswith("o")
+    )
+    payload: dict[str, Any] = {
         "model": model_id,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 60,
-        "temperature": 0.0,
-    }).encode()
+    }
+    if is_openai_new:
+        # GPT-5+ uses internal reasoning tokens; ensure enough room for output
+        payload["max_completion_tokens"] = max(max_tokens, 200)
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = 0.0
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(
         endpoint,
         data=body,
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "CEI-ToM/1.0",
+            "User-Agent": "CEI-Pipeline/1.0",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return data["choices"][0]["message"]["content"]
 
 
-def _call_anthropic(model_id: str, prompt: str, api_key: str) -> Optional[str]:
+def _call_anthropic(model_id: str, prompt: str, api_key: str, max_tokens: int = 60) -> Optional[str]:
     """Call Anthropic Messages API."""
     import urllib.request
 
     body = json.dumps({
         "model": model_id,
-        "max_tokens": 60,
+        "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
     req = urllib.request.Request(
@@ -1028,15 +1026,14 @@ def _call_anthropic(model_id: str, prompt: str, api_key: str) -> Optional[str]:
             "Content-Type": "application/json",
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
-            "User-Agent": "CEI-ToM/1.0",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
     return data["content"][0]["text"]
 
 
-def _call_google(model_id: str, prompt: str, api_key: str) -> Optional[str]:
+def _call_google(model_id: str, prompt: str, api_key: str, max_tokens: int = 60) -> Optional[str]:
     """Call Google Gemini generateContent API."""
     import urllib.request
 
@@ -1046,34 +1043,23 @@ def _call_google(model_id: str, prompt: str, api_key: str) -> Optional[str]:
     )
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "maxOutputTokens": 1024,
-            "temperature": 0.0,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.0},
     }).encode()
     req = urllib.request.Request(
         url,
         data=body,
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": "CEI-ToM/1.0",
-        },
+        headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
-    try:
-        parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts)
-    except (KeyError, IndexError):
-        # Gemini may block content or return empty responses
-        return None
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
 def _call_model(
     model_name: str,
     prompt: str,
     model_registry: dict[str, dict[str, str]],
+    max_tokens: int = 60,
 ) -> Optional[str]:
     """Dispatch to the appropriate provider based on model registry."""
     cfg = model_registry.get(model_name)
@@ -1086,24 +1072,44 @@ def _call_model(
     model_id = cfg["model_id"]
 
     if provider == "anthropic":
-        return _call_anthropic(model_id, prompt, api_key)
+        return _call_anthropic(model_id, prompt, api_key, max_tokens=max_tokens)
     elif provider == "google":
-        return _call_google(model_id, prompt, api_key)
+        return _call_google(model_id, prompt, api_key, max_tokens=max_tokens)
     else:
         # OpenAI-compatible: openai, xai, together, fireworks
         endpoint = OPENAI_COMPAT_ENDPOINTS.get(provider)
         if not endpoint:
             return None
-        return _call_openai_compat(endpoint, model_id, prompt, api_key)
+        return _call_openai_compat(endpoint, model_id, prompt, api_key, max_tokens=max_tokens)
 
 
 def _parse_emotion_response(text: str) -> Optional[str]:
-    """Extract emotion from model response (expects JSON with 'emotion' key)."""
+    """Extract emotion from model response (expects JSON with 'emotion' key).
+
+    Handles multiple response formats:
+    - Direct JSON: {"emotion": "anger"}
+    - Markdown-wrapped JSON: ```json\n{"emotion": "anger"}\n```
+    - CoT with JSON at end: reasoning...\n{"emotion": "anger"}
+    - CoT with "Answer: emotion" format
+    """
     if not text:
         return None
-    # Try JSON parse first
+
+    # Try to find JSON anywhere in the text (handles CoT where JSON is at the end)
+    import re
+    json_matches = re.findall(r'\{[^{}]*"emotion"\s*:\s*"[^"]*"[^{}]*\}', text)
+    for match in reversed(json_matches):  # prefer last match (CoT puts it at end)
+        try:
+            obj = json.loads(match)
+            if isinstance(obj, dict) and "emotion" in obj:
+                emo = obj["emotion"].strip().lower()
+                if emo in PLUTCHIK_EMOTIONS:
+                    return emo
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    # Try full text as JSON (with markdown cleanup)
     try:
-        # Handle markdown-wrapped JSON
         cleaned = text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
@@ -1117,148 +1123,62 @@ def _parse_emotion_response(text: str) -> Optional[str]:
     except (json.JSONDecodeError, AttributeError):
         pass
 
-    # Fallback: look for emotion keywords in text
-    text_lower = text.lower()
-    for emo in PLUTCHIK_EMOTIONS:
-        if emo in text_lower:
+    # Try "Answer: emotion" format (CoT)
+    answer_match = re.search(r'[Aa]nswer:\s*(\w+)', text)
+    if answer_match:
+        emo = answer_match.group(1).strip().lower()
+        if emo in PLUTCHIK_EMOTIONS:
             return emo
+
+    # Fallback: look for emotion keywords in last line or full text
+    lines = text.strip().split("\n")
+    for search_text in [lines[-1], text]:
+        text_lower = search_text.lower()
+        for emo in PLUTCHIK_EMOTIONS:
+            if emo in text_lower:
+                return emo
     return None
 
 
-class _ProgressTracker:
-    """Real-time progress tracking for parallel baseline execution.
+def _run_single_scenario(
+    model_name: str,
+    sc: dict[str, str],
+    model_registry: dict[str, dict[str, str]],
+    retry_config: RetryConfig,
+    prompt_template: str = DMLR_BASELINE_PROMPT,
+    prompt_mode: str = "zero-shot",
+) -> tuple[str, dict[str, Any], str, bool, Optional[str]]:
+    """Run a single scenario for a single model. Returns (key, result, raw, success, error)."""
+    key = f"{model_name}::{sc['subtype']}::{sc['id']}"
+    prompt = prompt_template.format(
+        situation=sc["situation"],
+        utterance=sc["utterance"],
+        speaker_role=sc["speaker_role"],
+        listener_role=sc["listener_role"],
+    )
+    max_tokens = 2048 if prompt_mode == "cot" else 256
+    raw_response = None
+    error_msg = None
+    for attempt in range(retry_config.max_retries):
+        try:
+            raw_response = _call_model(model_name, prompt, model_registry, max_tokens=max_tokens)
+            break
+        except Exception as e:
+            error_msg = str(e)
+            delay = retry_config.delay(attempt)
+            time.sleep(delay)
 
-    Thread-safe counters for completed/cached/failed tasks, retry attempts,
-    rate-limit hits, and per-model cost estimation.  Used by a background
-    reporter thread to print status every 60 seconds.
-    """
-
-    def __init__(
-        self,
-        total_tasks: int,
-        model_registry: dict[str, dict[str, str]],
-        pricing: dict[str, Any],
-        est_input_tokens: int = 800,
-        est_output_tokens: int = 200,
-    ) -> None:
-        self._lock = threading.Lock()
-        self.total_tasks = total_tasks
-        self.completed = 0
-        self.cached = 0
-        self.api_success = 0
-        self.api_failed = 0
-        self.retries = 0
-        self.rate_limits = 0
-        self.per_model: dict[str, dict[str, int]] = {}
-        self.start_time = time.time()
-        self._model_registry = model_registry
-        self._pricing = pricing
-        self._est_input = est_input_tokens
-        self._est_output = est_output_tokens
-
-    def record_complete(self, model_name: str, *, cached: bool = False) -> None:
-        with self._lock:
-            self.completed += 1
-            m = self.per_model.setdefault(
-                model_name, {"success": 0, "failed": 0, "cached": 0},
-            )
-            if cached:
-                self.cached += 1
-                m["cached"] += 1
-            else:
-                self.api_success += 1
-                m["success"] += 1
-
-    def record_failure(self, model_name: str) -> None:
-        with self._lock:
-            self.completed += 1
-            m = self.per_model.setdefault(
-                model_name, {"success": 0, "failed": 0, "cached": 0},
-            )
-            self.api_failed += 1
-            m["failed"] += 1
-
-    def record_retry(self, *, is_rate_limit: bool = False) -> None:
-        with self._lock:
-            self.retries += 1
-            if is_rate_limit:
-                self.rate_limits += 1
-
-    def _model_cost_usd(self, model_name: str, n_calls: int) -> float:
-        cfg = self._model_registry.get(model_name, {})
-        provider = cfg.get("provider", "")
-        model_id = cfg.get("model_id", "")
-        pp = self._pricing.get(provider, {})
-        mp = (
-            pp.get(model_id)
-            or pp.get(model_id.split("/")[-1])
-            or pp.get("_default", {})
-        )
-        inp = mp.get("input", 0)
-        out = mp.get("output", 0)
-        return n_calls * (self._est_input * inp + self._est_output * out) / 1_000_000
-
-    def estimated_cost(self) -> float:
-        with self._lock:
-            return sum(
-                self._model_cost_usd(m, c["success"])
-                for m, c in self.per_model.items()
-            )
-
-    def status_line(self) -> str:
-        with self._lock:
-            elapsed = time.time() - self.start_time
-            pct = (
-                self.completed / self.total_tasks * 100
-                if self.total_tasks else 0
-            )
-            rate = self.completed / elapsed if elapsed > 0 else 0
-            remaining = (
-                (self.total_tasks - self.completed) / rate if rate > 0 else 0
-            )
-
-            elapsed_m, elapsed_s = divmod(int(elapsed), 60)
-            eta_m, eta_s = divmod(int(remaining), 60)
-            cost = sum(
-                self._model_cost_usd(m, c["success"])
-                for m, c in self.per_model.items()
-            )
-
-            return (
-                f"  [{elapsed_m:02d}:{elapsed_s:02d}] "
-                f"{self.completed}/{self.total_tasks} ({pct:.0f}%) | "
-                f"API: {self.api_success} ok, {self.api_failed} fail, "
-                f"{self.cached} cached, {self.retries} retries "
-                f"({self.rate_limits} 429s) | "
-                f"~${cost:.2f} | "
-                f"ETA {eta_m}m{eta_s:02d}s"
-            )
-
-    def final_summary(self) -> str:
-        with self._lock:
-            elapsed = time.time() - self.start_time
-            elapsed_m, elapsed_s = divmod(int(elapsed), 60)
-            cost = sum(
-                self._model_cost_usd(m, c["success"])
-                for m, c in self.per_model.items()
-            )
-            lines = [
-                f"  Completed {self.completed}/{self.total_tasks} in "
-                f"{elapsed_m}m{elapsed_s:02d}s",
-                f"  API calls: {self.api_success} success, "
-                f"{self.api_failed} failed, {self.cached} cached",
-                f"  Retries: {self.retries} total "
-                f"({self.rate_limits} rate-limited)",
-                f"  Estimated cost: ~${cost:.2f}",
-            ]
-            for m in sorted(self.per_model):
-                c = self.per_model[m]
-                mc = self._model_cost_usd(m, c["success"])
-                lines.append(
-                    f"    {m}: {c['success']} ok, {c['failed']} fail, "
-                    f"{c['cached']} cached (~${mc:.3f})"
-                )
-            return "\n".join(lines)
+    emotion = _parse_emotion_response(raw_response or "")
+    result = {
+        "id": sc["id"],
+        "subtype": sc["subtype"],
+        "gold": sc["gold_standard"],
+        "predicted": emotion,
+        "raw_response": raw_response,
+        "cached": False,
+    }
+    success = raw_response is not None
+    return key, result, raw_response or "", success, error_msg
 
 
 def stage_run_baselines(
@@ -1272,38 +1192,31 @@ def stage_run_baselines(
     models: Optional[list[str]] = None,
     dry_run: bool = False,
     resume: bool = False,
+    workers_per_model: int = 10,
+    prompt_mode: str = "zero-shot",
 ) -> dict[str, Any]:
-    """R1: Run baseline models on all scenarios with parallel execution.
+    """R1: Run baseline models on all scenarios (parallelized across and within models)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    Architecture:
-      - All models run concurrently via ThreadPoolExecutor
-      - Per-provider semaphores limit concurrent requests (e.g., Together=8
-        shared by Llama-70B + Phi-4)
-      - Adaptive throttling: 429 responses increase per-provider delay;
-        successful requests decay it back
-      - Tasks interleaved round-robin across models for balanced utilization
-      - Thread-safe checkpointing every 50 completions per model
-    """
-    logger.info("[R1] Baseline inference (parallel)")
+    prompt_template = PROMPT_TEMPLATES.get(prompt_mode, DMLR_BASELINE_PROMPT)
+    logger.info(f"[R1] Baseline inference (parallelized, mode={prompt_mode})")
     if models is None:
         models = list(model_registry.keys())
 
     if dry_run:
-        # Dry-run shows cost estimates for all requested models (no keys needed)
         n_scenarios = sum(len(rows) for rows in data.values())
         total_calls = n_scenarios * len(models)
         logger.info(f"  DRY RUN: would make {total_calls} API calls")
         logger.info(f"  Models: {models}")
-        # Estimate cost from config pricing
-        est_input_tokens = n_scenarios * 800  # ~800 input tokens/scenario
-        est_output_tokens = n_scenarios * 200  # ~200 output tokens/scenario
+        est_input_tokens = n_scenarios * 800
+        est_output_tokens = n_scenarios * 200
         total_cost = 0.0
         for m in models:
             cfg = model_registry.get(m, {})
             provider = cfg.get("provider", "")
             model_id = cfg.get("model_id", "")
             provider_pricing = pricing.get(provider, {})
-            # Try full model_id, then last path segment, then _default
             model_pricing = (
                 provider_pricing.get(model_id)
                 or provider_pricing.get(model_id.split("/")[-1])
@@ -1349,215 +1262,164 @@ def stage_run_baselines(
                 "gold_standard": row.get("gold_standard", ""),
             })
 
-    # Load checkpoint if resuming
-    checkpoint_path = output_dir / "baseline_checkpoint.json"
-    completed: dict[str, str] = {}  # key = "model::id" → response text
+    n_scenarios = len(scenarios)
+    logger.info(f"  {len(available)} models × {n_scenarios} scenarios = "
+                f"{len(available) * n_scenarios} total calls")
+    logger.info(f"  Parallelism: {len(available)} models concurrent, "
+                f"{workers_per_model} workers/model")
+
+    # Load checkpoint if resuming (new key format: model::subtype::id)
+    mode_suffix = f"_{prompt_mode}" if prompt_mode != "zero-shot" else ""
+    checkpoint_path = output_dir / f"baseline_checkpoint{mode_suffix}.json"
+    completed: dict[str, str] = {}
     if resume and checkpoint_path.exists():
         with open(checkpoint_path) as f:
             completed = json.load(f)
         logger.info(f"  Resumed from checkpoint: {len(completed)} results loaded")
 
-    # Create per-provider throttlers for rate limiting
-    provider_throttlers: dict[str, ProviderThrottler] = {}
-    for model_name in available:
-        provider = model_registry[model_name]["provider"]
-        if provider not in provider_throttlers:
-            max_conc = PROVIDER_CONCURRENCY.get(provider, 5)
-            provider_throttlers[provider] = ProviderThrottler(max_conc)
+    # Thread-safe progress tracking
+    lock = threading.Lock()
+    stats: dict[str, dict[str, int]] = {
+        m: {"success": 0, "failure": 0, "cached": 0, "total": n_scenarios}
+        for m in available
+    }
+    all_results: dict[str, list[dict[str, Any]]] = {m: [] for m in available}
+    start_time = time.monotonic()
 
-    # Thread-safe shared state
-    results: dict[str, list[dict[str, Any]]] = {m: [] for m in available}
-    results_lock = threading.Lock()
-    checkpoint_lock = threading.Lock()
-    progress_counts: dict[str, int] = {m: 0 for m in available}
-    errors: list[str] = []
-    errors_lock = threading.Lock()
-    n_scenarios = len(scenarios)
-    total_tasks = n_scenarios * len(available)
-
-    # Progress tracker for periodic status reports (every 60s)
-    tracker = _ProgressTracker(total_tasks, model_registry, pricing)
-
-    def _process_one(model_name: str, sc: dict[str, str]) -> None:
-        """Process a single (model, scenario) pair with provider throttling."""
-        key = f"{model_name}::{sc['subtype']}::{sc['id']}"
-
-        # Check cache
-        with checkpoint_lock:
-            cached_response = completed.get(key)
-        if cached_response is not None:
-            emotion = _parse_emotion_response(cached_response)
-            with results_lock:
-                results[model_name].append({
-                    "id": sc["id"], "subtype": sc["subtype"],
-                    "gold": sc["gold_standard"], "predicted": emotion,
-                    "raw_response": cached_response, "cached": True,
-                })
-            tracker.record_complete(model_name, cached=True)
-            return
-
-        # Check safety limits
-        ok, reason = call_tracker.check_limits(model_name)
-        if not ok:
-            logger.error(f"    Safety limit reached: {reason}")
-            tracker.record_failure(model_name)
-            return
-
-        prompt = DMLR_BASELINE_PROMPT.format(
-            situation=sc["situation"], utterance=sc["utterance"],
-            speaker_role=sc["speaker_role"], listener_role=sc["listener_role"],
-        )
-
-        provider = model_registry[model_name]["provider"]
-        throttler = provider_throttlers[provider]
-        raw_response = None
-
-        for attempt in range(retry_config.max_retries):
-            wait = 0.0
-            success = False
-            # Acquire provider semaphore — limits concurrent requests to this
-            # provider across all its models (e.g., Together: Llama + Phi)
-            with throttler.semaphore:
-                # Adaptive inter-request delay (increases on 429s, decays on success)
-                d = throttler.delay
-                if d > 0:
-                    time.sleep(d)
-                try:
-                    raw_response = _call_model(model_name, prompt, model_registry)
-                    call_tracker.increment(model_name)
-                    throttler.on_success()
-                    success = True
-                except Exception as e:
-                    is_rate_limit = (
-                        hasattr(e, "code") and getattr(e, "code", 0) in (429, 403)
-                    )
-                    tracker.record_retry(is_rate_limit=is_rate_limit)
-                    if is_rate_limit:
-                        retry_after = None
-                        if hasattr(e, "headers"):
-                            ra = getattr(e, "headers", {}).get("Retry-After")
-                            if ra:
-                                try:
-                                    retry_after = float(ra)
-                                except (ValueError, TypeError):
-                                    pass
-                        throttler.on_rate_limit(retry_after)
-                        wait = retry_config.delay_rate_limit(
-                            attempt, retry_after,
-                        )
-                        logger.warning(
-                            f"    429 {model_name} scenario {sc['id']} "
-                            f"(attempt {attempt + 1}, waiting {wait:.1f}s)"
-                        )
-                    else:
-                        wait = retry_config.delay(attempt)
-                        logger.warning(
-                            f"    Retry {attempt + 1}/{retry_config.max_retries} "
-                            f"for {model_name} scenario {sc['id']}: {e}  "
-                            f"(waiting {wait:.1f}s)"
-                        )
-            # Semaphore released — sleep outside to free the slot for others
-            if success:
-                break
-            time.sleep(wait)
-
-        emotion = _parse_emotion_response(raw_response or "")
-        with results_lock:
-            results[model_name].append({
-                "id": sc["id"], "subtype": sc["subtype"],
-                "gold": sc["gold_standard"], "predicted": emotion,
-                "raw_response": raw_response, "cached": False,
-            })
-
-        if raw_response is not None:
-            tracker.record_complete(model_name)
+    def _progress_report() -> str:
+        elapsed = time.monotonic() - start_time
+        elapsed_m = elapsed / 60
+        lines = [f"\n  === Progress Report (elapsed {elapsed_m:.1f} min) ==="]
+        total_done = 0
+        total_all = 0
+        for m in available:
+            s = stats[m]
+            done = s["success"] + s["failure"] + s["cached"]
+            total_done += done
+            total_all += s["total"]
+            pct_done = done / s["total"] * 100 if s["total"] else 0
+            pct_ok = s["success"] / max(done - s["cached"], 1) * 100 if (done - s["cached"]) > 0 else 100.0
+            lines.append(
+                f"    {m:30s}  "
+                f"API {s['success']:>3d}ok/{s['failure']:>3d}fail  "
+                f"{pct_ok:5.1f}%ok  "
+                f"{done:>3d}/{s['total']} ({pct_done:5.1f}% complete)"
+            )
+        overall_pct = total_done / total_all * 100 if total_all else 0
+        if total_done > 0 and overall_pct < 100:
+            est_total = elapsed / (total_done / total_all)
+            est_remain = (est_total - elapsed) / 60
+            lines.append(f"  ALL MODELS: {overall_pct:.1f}% complete | "
+                         f"elapsed {elapsed_m:.1f} min | "
+                         f"est. remaining {est_remain:.1f} min")
         else:
-            tracker.record_failure(model_name)
+            lines.append(f"  ALL MODELS: {overall_pct:.1f}% complete | "
+                         f"elapsed {elapsed_m:.1f} min")
+        lines.append("  " + "=" * 50)
+        return "\n".join(lines)
 
-        # Update checkpoint
-        with checkpoint_lock:
-            completed[key] = raw_response or ""
-            progress_counts[model_name] = progress_counts.get(model_name, 0) + 1
-            if progress_counts[model_name] % 50 == 0:
-                output_dir.mkdir(parents=True, exist_ok=True)
-                with open(checkpoint_path, "w") as f:
-                    json.dump(completed, f)
-                logger.info(
-                    f"    {model_name}: "
-                    f"{progress_counts[model_name]}/{n_scenarios} done"
-                )
+    # Background progress reporter (every 60s)
+    stop_reporter = threading.Event()
 
-    # Build interleaved task list (round-robin across models for balanced
-    # provider utilization — prevents all threads piling on one provider)
-    tasks: list[tuple[str, dict[str, str]]] = []
-    for i in range(n_scenarios):
-        for model_name in available:
-            tasks.append((model_name, scenarios[i]))
+    def _reporter_loop() -> None:
+        while not stop_reporter.wait(60):
+            with lock:
+                report = _progress_report()
+            logger.info(report)
 
-    # Worker count = sum of active provider concurrency limits (capped)
-    active_providers = {model_registry[m]["provider"] for m in available}
-    max_workers = min(
-        sum(PROVIDER_CONCURRENCY.get(p, 5) for p in active_providers), 60,
-    )
-
-    logger.info(
-        f"  Parallel execution: {len(available)} models, "
-        f"{n_scenarios} scenarios, {total_tasks} total tasks, "
-        f"{max_workers} workers"
-    )
-    providers_str = ", ".join(
-        f"{p}={PROVIDER_CONCURRENCY.get(p, 5)}"
-        for p in sorted(active_providers)
-    )
-    logger.info(f"  Provider concurrency: {providers_str}")
-
-    # Start periodic status reporter (fires every 60 seconds)
-    reporter_stop = threading.Event()
-
-    def _status_reporter() -> None:
-        while not reporter_stop.wait(timeout=60):
-            logger.info(tracker.status_line())
-
-    reporter_thread = threading.Thread(target=_status_reporter, daemon=True)
+    reporter_thread = threading.Thread(target=_reporter_loop, daemon=True)
     reporter_thread.start()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(_process_one, m, sc) for m, sc in tasks
-        ]
-        for future in as_completed(futures):
+    def _checkpoint_save() -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with lock:
+            snapshot = dict(completed)
+        with open(checkpoint_path, "w") as f:
+            json.dump(snapshot, f)
+
+    def _run_model(model_name: str) -> None:
+        """Run all scenarios for one model using a thread pool."""
+        # Identify which scenarios still need to be run
+        todo: list[dict[str, str]] = []
+        for sc in scenarios:
+            key = f"{model_name}::{sc['subtype']}::{sc['id']}"
+            if key in completed:
+                # Restore cached result
+                raw = completed[key]
+                emotion = _parse_emotion_response(raw)
+                with lock:
+                    all_results[model_name].append({
+                        "id": sc["id"], "subtype": sc["subtype"],
+                        "gold": sc["gold_standard"], "predicted": emotion,
+                        "raw_response": raw, "cached": True,
+                    })
+                    stats[model_name]["cached"] += 1
+            else:
+                todo.append(sc)
+
+        if not todo:
+            logger.info(f"  {model_name}: all {n_scenarios} cached, skipping")
+            return
+
+        logger.info(f"  {model_name}: {len(todo)} to run, "
+                     f"{n_scenarios - len(todo)} cached")
+
+        with ThreadPoolExecutor(max_workers=workers_per_model) as pool:
+            futures = {
+                pool.submit(
+                    _run_single_scenario, model_name, sc,
+                    model_registry, retry_config,
+                    prompt_template, prompt_mode,
+                ): sc
+                for sc in todo
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                key, result, raw, success, error_msg = future.result()
+                with lock:
+                    all_results[model_name].append(result)
+                    completed[key] = raw
+                    if success:
+                        stats[model_name]["success"] += 1
+                    else:
+                        stats[model_name]["failure"] += 1
+                done_count += 1
+                # Checkpoint every 50 completions
+                if done_count % 50 == 0:
+                    _checkpoint_save()
+
+        # Final checkpoint for this model
+        _checkpoint_save()
+
+    # Run all models concurrently
+    with ThreadPoolExecutor(max_workers=len(available)) as model_pool:
+        model_futures = {
+            model_pool.submit(_run_model, m): m for m in available
+        }
+        for future in as_completed(model_futures):
+            m = model_futures[future]
             try:
                 future.result()
             except Exception as e:
-                with errors_lock:
-                    errors.append(str(e))
-                logger.error(f"    Unhandled error: {e}")
+                logger.error(f"  {m}: FAILED — {e}")
 
-    # Stop reporter and print final summary
-    reporter_stop.set()
+    # Stop reporter and print final report
+    stop_reporter.set()
     reporter_thread.join(timeout=2)
-    logger.info(tracker.final_summary())
-    if errors:
-        logger.warning(f"  {len(errors)} errors encountered")
+    logger.info(_progress_report())
 
-    # Final checkpoint + results
+    # Save full results
     output_dir.mkdir(parents=True, exist_ok=True)
-    with open(checkpoint_path, "w") as f:
-        json.dump(completed, f)
-    results_path = output_dir / "baseline_results.json"
+    results_path = output_dir / f"baseline_results{mode_suffix}.json"
     with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(all_results, f, indent=2)
     logger.info(f"  Results saved to {results_path}")
 
-    elapsed = time.time() - tracker.start_time
     return {
         "status": "complete",
         "models": available,
         "api_calls": call_tracker.summary(),
         "results_path": str(results_path),
-        "elapsed_seconds": round(elapsed, 1),
-        "estimated_cost_usd": round(tracker.estimated_cost(), 2),
-        "errors": len(errors),
     }
 
 
@@ -1569,10 +1431,12 @@ def stage_run_baselines(
 def stage_analyze_baselines(
     output_dir: Path,
     logger: DualLogger,
+    prompt_mode: str = "zero-shot",
 ) -> dict[str, Any]:
     """R1: Compute accuracy and macro-F1 from baseline results."""
-    logger.info("[R1] Analyzing baseline results")
-    results_path = output_dir / "baseline_results.json"
+    mode_suffix = f"_{prompt_mode}" if prompt_mode != "zero-shot" else ""
+    logger.info(f"[R1] Analyzing baseline results (mode={prompt_mode})")
+    results_path = output_dir / f"baseline_results{mode_suffix}.json"
     if not results_path.exists():
         logger.warning(f"  Results file not found: {results_path}")
         return {"status": "no_data"}
@@ -1637,7 +1501,7 @@ def stage_analyze_baselines(
         )
 
     # Save analysis
-    analysis_path = output_dir / "baseline_analysis.json"
+    analysis_path = output_dir / f"baseline_analysis{mode_suffix}.json"
     with open(analysis_path, "w") as f:
         json.dump(analysis, f, indent=2)
     logger.info(f"  Analysis saved to {analysis_path}")
@@ -1658,17 +1522,6 @@ def stage_generate_outputs(
     """Generate LaTeX tables and optional figures for the DMLR paper."""
     logger.info("[Output] Generating paper outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # If all_results is empty (standalone run), load from saved master JSON
-    if not any(k for k in all_results if k != "outputs"):
-        master_path = output_dir / "dmlr2026_all_results.json"
-        if master_path.exists():
-            logger.info(f"  Loading cached results from {master_path}")
-            with open(master_path) as f:
-                cached = json.load(f)
-            all_results.update(cached)
-        else:
-            logger.warning("  No cached results found. Run analysis stages first.")
     generated: list[str] = []
 
     # --- Table 2: Inter-Annotator Agreement (κ per subtype) ---
@@ -1931,7 +1784,6 @@ ALL_LOCAL_STAGES = [
     "scale_justification",
     "create_splits",
     "extract_examples",
-    "generate_outputs",
 ]
 
 ALL_STAGES = ALL_LOCAL_STAGES + [
@@ -1963,7 +1815,7 @@ Stages:
 Examples:
   python scripts/run_pipeline_dmlr2026.py --stage all_local
   python scripts/run_pipeline_dmlr2026.py --stage run_baselines --dry-run
-  python scripts/run_pipeline_dmlr2026.py --stage all --model gpt-4o --model llama-3.1-70b
+  python scripts/run_pipeline_dmlr2026.py --stage all --model gpt-5-mini --model llama-3.1-70b
 """,
     )
     parser.add_argument(
@@ -1998,7 +1850,16 @@ Examples:
     parser.add_argument("--dry-run", action="store_true", help="Skip API calls")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    parser.add_argument(
+        "--prompt-mode",
+        choices=["zero-shot", "cot", "few-shot"],
+        default="zero-shot",
+        help="Prompt mode: zero-shot (default), cot (chain-of-thought), few-shot (3-shot)",
+    )
     args = parser.parse_args()
+
+    # Seed for reproducibility (bootstrap CIs, stratified splits, etc.)
+    random.seed(args.seed)
 
     # Setup
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2082,10 +1943,12 @@ Examples:
                 data, logger, call_tracker, retry_config,
                 args.output_dir, model_registry, pricing,
                 args.models, args.dry_run, args.resume,
+                prompt_mode=args.prompt_mode,
             )
         elif s == "analyze_baselines":
             all_results["baseline_analysis"] = stage_analyze_baselines(
                 args.output_dir, logger,
+                prompt_mode=args.prompt_mode,
             )
         elif s == "generate_outputs":
             all_results["outputs"] = stage_generate_outputs(
