@@ -4,8 +4,7 @@
 Implements all computational tasks for the DMLR dataset paper (R0–R9):
   Phase 0 (local):  Data verification, κ, power distribution, human performance,
                      VAD analysis, scale justification, stratified splits, examples
-  Phase 1 (API):    CogSci-safe baseline inference (models loaded from
-                     config/config-dmlr.yml — none overlap with CogSci 2026)
+  Phase 1 (API):    Baseline inference (models loaded from config/config.yml)
   Phase 2 (local):  Baseline analysis, LaTeX tables, figures
 
 Usage:
@@ -84,8 +83,7 @@ POWER_KEYWORDS_LOW_TO_HIGH = [
     "junior", "intern", "mentee", "son", "daughter", "patient",
 ]
 
-# DMLR-specific prompt: asks about the SPEAKER's emotion (distinct from CogSci's
-# LISTENER framing).  This is the ground-truth annotation target.
+# Baseline prompt: asks about the SPEAKER's emotion (the ground-truth annotation target).
 DMLR_BASELINE_PROMPT = """You are evaluating a communication scenario.  Based on the \
 context, determine the primary emotion the SPEAKER is most likely experiencing when \
 they make this utterance.
@@ -204,7 +202,7 @@ def _short_model_name(model_id: str) -> str:
 
 
 def load_dmlr_config(config_path: Path) -> dict[str, Any]:
-    """Load config-dmlr.yml and return parsed config."""
+    """Load config.yml and return parsed config."""
     with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
@@ -909,7 +907,7 @@ def stage_extract_examples(
 ) -> dict[str, Any]:
     """R7: Select candidate worked examples (prefer mixed signals & deflection)."""
     logger.info("[R7] Extracting candidate worked examples")
-    # Prefer subtypes NOT used by CogSci paper (strategic-politeness is CogSci's example)
+    # Prefer subtypes with clearest pragmatic patterns for worked examples
     preferred = ["deflection-misdirection", "mixed-signals", "passive-aggression"]
     candidates: list[dict[str, Any]] = []
 
@@ -1838,8 +1836,8 @@ Examples:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("config/config-dmlr.yml"),
-        help="Configuration file (default: config/config-dmlr.yml)",
+        default=Path("config/config.yml"),
+        help="Configuration file (default: config/config.yml)",
     )
     parser.add_argument(
         "--model",

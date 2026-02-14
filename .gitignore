@@ -4,13 +4,8 @@ reports/
 docs/
 papers/
 
-CLAUDE.md
-
 # Release archives
 *.zip
-
-# Local config overrides (use config-dmlr.yml for DMLR submission)
-config/config.yml
 
 # Session logs
 202*-*.txt

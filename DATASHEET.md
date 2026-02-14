@@ -194,5 +194,5 @@ Yes. All versions will remain available via Git tags and releases.
 - [README.md](README.md): Installation, usage, and dataset overview
 - [CHANGELOG.md](CHANGELOG.md): Version history and changes
 - [LICENSE](LICENSE): Full license text
-- [config/config-dmlr.yml](config/config-dmlr.yml): Pipeline configuration
+- [config/config.yml](config/config.yml): Pipeline configuration
 - Paper Appendix B: Complete annotation guidelines

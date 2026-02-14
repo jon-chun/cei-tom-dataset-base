@@ -1,4 +1,4 @@
-# CEI Dataset: DMLR 2026 Replication Guide
+# CEI Benchmark: Replication Guide
 
 **Paper:** *CEI: A Benchmark for Evaluating Pragmatic Reasoning in Language Models*
 **Venue:** Journal of Data-centric Machine Learning Research (DMLR)
@@ -7,15 +7,13 @@
 
 ## Overview
 
-The CEI-ToM benchmark evaluates how well language models can infer a **speaker's emotional state** from contextually complex utterances requiring Theory of Mind reasoning.  The dataset contains **300 expert-authored scenarios** across 5 pragmatic communication subtypes, each annotated by 3 independent human raters.
-
-### Dataset at a Glance
+The CEI-ToM benchmark evaluates how well language models can infer a **speaker's emotional state** from contextually complex utterances requiring Theory of Mind reasoning. The dataset contains **300 expert-authored scenarios** across 5 pragmatic communication subtypes, each annotated by 3 independent human raters.
 
 | Property | Value |
 |----------|-------|
 | Scenarios | 300 (60 per subtype) |
 | Subtypes | sarcasm-irony, mixed-signals, passive-aggression, deflection-misdirection, strategic-politeness |
-| Annotators | 15 total (3 per subtype, assigned by subtype) |
+| Annotators | 15 total (3 per subtype) |
 | Emotion labels | Plutchik's 8 basic emotions |
 | VAD scales | 7-point Valence, Arousal, Dominance, Confidence |
 | Gold standard | Adjudicated per-scenario label |
@@ -27,50 +25,35 @@ The CEI-ToM benchmark evaluates how well language models can infer a **speaker's
 ### 1. Install
 
 ```bash
-# Clone and set up environment
 git clone <anonymous> && cd cei-tom-dataset-base
 uv venv && source .venv/bin/activate
-uv pip install -e "."
+uv pip install -e "."                    # core (pyyaml + python-dotenv)
+uv pip install -e ".[figures]"           # adds matplotlib, numpy, scipy
 ```
 
-**Requirements:** Python 3.10+, `pyyaml` (included).  Matplotlib is optional (for figures).
+**Requirements:** Python 3.10+. Alternative: `pip install -r requirements.txt`.
 
-### 2. Run All Local Analysis (no API calls, $0 cost)
+### 2. Run All Local Analysis (~30s, no API calls)
 
 ```bash
 python scripts/run_pipeline_dmlr2026.py --stage all_local
 ```
 
-This runs in ~30 seconds and produces:
-- Fleiss' kappa per subtype + 95% bootstrap CIs
-- Power distribution counts (peer / high-to-low / low-to-high)
-- Human agreement patterns (unanimous / majority / split)
-- VAD ICC(2,1) per dimension per subtype
-- Scale justification (power analysis, benchmark comparison)
-- Stratified train/val/test splits (70/15/15)
-- Candidate worked examples
+Produces inter-annotator agreement (Fleiss' kappa + bootstrap CIs), power distributions, human agreement patterns, VAD ICC(2,1), scale justification, stratified splits (70/15/15), and worked examples.
 
-### 3. Generate Paper Tables & Figures
+### 3. Generate Paper Figures
 
 ```bash
-python scripts/run_pipeline_dmlr2026.py --stage all
+python scripts/generate_figures.py
 ```
 
-Outputs to `reports/dmlr2026/`:
-- `table_kappa.tex` -- Inter-annotator agreement
-- `table_human_agreement.tex` -- Agreement patterns
-- `table_power_distribution.tex` -- Power relation distribution
-- `table_vad_icc.tex` -- VAD ICC values
-- `table_baselines.tex` -- LLM baseline results (if baselines have been run)
-- `fig_vad_distributions.pdf` -- VAD dimension means by subtype
-- `fig_emotion_valence.pdf` -- Mean valence by gold-standard emotion
-- `dmlr2026_all_results.json` -- All computed results (machine-readable)
+Outputs 4 figures to `reports/dmlr2026/figures/`: confusion matrix, difficulty distribution, linguistic analysis, agreement by subtype.
 
 ---
 
 ## Running LLM Baselines
 
-The paper includes baseline results from 7 models.  Models and pricing are defined in `config/config-dmlr.yml`.
+Models and pricing are defined in `config/config.yml`.
 
 ### Baseline Models
 
@@ -84,46 +67,43 @@ The paper includes baseline results from 7 models.  Models and pricing are defin
 | DeepSeek V3.1 | Fireworks | `FIREWORKS_API_KEY` | $0.08 |
 | Qwen2.5-7B | Together | `TOGETHER_API_KEY` | $0.12 |
 
+**Estimated total:** ~$2.49 for all 7 models (2,100 calls). Use `--dry-run` for exact estimates.
+
 ### Configure API Keys
 
-Set one or more of:
-
 ```bash
-export OPENAI_API_KEY="sk-..."          # For GPT-5-mini
-export ANTHROPIC_API_KEY="sk-ant-..."   # For Claude Sonnet 4.5
-export XAI_API_KEY="xai-..."            # For Grok-4.1-fast
-export GOOGLE_API_KEY="..."             # For Gemini 2.5 Flash
-export TOGETHER_API_KEY="..."           # For Llama-3.1-70B and Qwen2.5-7B
-export FIREWORKS_API_KEY="..."          # For DeepSeek V3.1
+export OPENAI_API_KEY="sk-..."          # GPT-5-mini
+export ANTHROPIC_API_KEY="sk-ant-..."   # Claude Sonnet 4.5
+export XAI_API_KEY="xai-..."            # Grok-4.1-fast
+export GOOGLE_API_KEY="..."             # Gemini 2.5 Flash
+export TOGETHER_API_KEY="..."           # Llama-3.1-70B + Qwen2.5-7B
+export FIREWORKS_API_KEY="..."          # DeepSeek V3.1
 ```
 
 The pipeline runs whichever models have keys configured and skips the rest.
 
-### Dry Run (estimate cost, no API calls)
-
-```bash
-python scripts/run_pipeline_dmlr2026.py --stage run_baselines --dry-run
-```
-
-Shows per-model cost estimates and API key status -- no keys required.
-
 ### Run Baselines
 
 ```bash
-# All available models (those with API keys set)
+# Dry run (cost estimate only, no API keys needed)
+python scripts/run_pipeline_dmlr2026.py --stage run_baselines --dry-run
+
+# All available models
 python scripts/run_pipeline_dmlr2026.py --stage run_baselines
 
 # Specific models only
 python scripts/run_pipeline_dmlr2026.py --stage run_baselines \
-    --model gpt-4o --model llama-3.1-70b --model phi-4
+    --model gpt-5-mini --model llama-3.1-70b
 
 # Resume from checkpoint after interruption
 python scripts/run_pipeline_dmlr2026.py --stage run_baselines --resume
+
+# Chain-of-thought or few-shot prompting
+python scripts/run_pipeline_dmlr2026.py --stage run_baselines --prompt-mode cot
+python scripts/run_pipeline_dmlr2026.py --stage run_baselines --prompt-mode few-shot
 ```
 
-**Estimated API costs:** ~$2.49 for all 7 models (2,100 calls). Use `--dry-run` for exact estimates.
-
-### Analyze Baseline Results
+### Analyze Results
 
 ```bash
 python scripts/run_pipeline_dmlr2026.py --stage analyze_baselines
@@ -133,46 +113,39 @@ Computes per-model accuracy and macro-F1, saved to `reports/dmlr2026/baseline_an
 
 ---
 
-## Pipeline Stages Reference
+## Pipeline Stages
 
-| Stage | R# | API Calls | Description |
-|-------|----|-----------|-------------|
-| `verify_agreement` | R0 | 0 | Fleiss' kappa per subtype + overall |
-| `verify_power` | R0 | 0 | Power relation distribution |
-| `human_performance` | R0 | 0 | Unanimous/majority/split patterns |
-| `vad_analysis` | R4 | 0 | ICC(2,1), distributions, emotion-VAD consistency |
-| `scale_justification` | R3 | 0 | Power analysis, CI widths, benchmarks |
-| `create_splits` | R5 | 0 | Stratified train/val/test (70/15/15) |
-| `extract_examples` | R7 | 0 | Candidate worked examples |
-| `run_baselines` | R1 | ~2,100 | LLM inference (7 models x 300 scenarios) |
-| `analyze_baselines` | R1 | 0 | Accuracy + macro-F1 |
-| `generate_outputs` | -- | 0 | LaTeX tables + figures |
+| Stage | API Calls | Description |
+|-------|-----------|-------------|
+| `verify_agreement` | 0 | Fleiss' kappa per subtype + overall |
+| `verify_power` | 0 | Power relation distribution |
+| `human_performance` | 0 | Unanimous/majority/split patterns |
+| `vad_analysis` | 0 | ICC(2,1), distributions, emotion-VAD consistency |
+| `scale_justification` | 0 | Power analysis, CI widths, benchmarks |
+| `create_splits` | 0 | Stratified train/val/test (70/15/15) |
+| `extract_examples` | 0 | Candidate worked examples |
+| `run_baselines` | ~2,100 | LLM inference (7 models x 300 scenarios) |
+| `analyze_baselines` | 0 | Accuracy + macro-F1 |
+| `generate_outputs` | 0 | LaTeX tables + figures |
 
-**Shortcut stages:**
-- `all_local` -- All stages except baselines (default)
-- `all` -- Everything including baselines
+**Shortcuts:** `all_local` (all except baselines, default), `all` (everything).
 
 ---
 
-## Data Layout
+## Data
+
+### Layout
 
 ```
-data/human-gold/                     # Merged CSVs (pipeline input)
-  data_deflection-misdirection.csv   #   60 scenarios, 3 annotators
+data/human-gold/                     # Input: 5 merged CSVs
+  data_sarcasm-irony.csv             #   60 scenarios, 3 annotators each
   data_mixed-signals.csv
   data_passive-aggression.csv
-  data_sarcasm-irony.csv
+  data_deflection-misdirection.csv
   data_strategic-politeness.csv
-
-reports/dmlr2026/                    # Pipeline outputs
-  table_*.tex                        #   LaTeX tables
-  fig_*.pdf                          #   Figures
-  dmlr2026_all_results.json          #   All results (JSON)
-  baseline_results.json              #   Raw model responses
-  baseline_analysis.json             #   Accuracy/F1 metrics
 ```
 
-### Merged CSV Schema
+### CSV Schema
 
 | Column | Description |
 |--------|-------------|
@@ -181,45 +154,52 @@ reports/dmlr2026/                    # Pipeline outputs
 | `sd_utterance` | Speaker's utterance |
 | `sd_speaker_role` | Speaker's role/relationship |
 | `sd_listener_role` | Listener's role/relationship |
-| `sl_plutchik_primary_<Annotator_N>` | Annotator's emotion label |
 | `gold_standard` | Adjudicated ground truth emotion |
-| `sl_v_<Annotator_N>`, `sl_a_<Annotator_N>`, `sl_d_<Annotator_N>` | Per-annotator VAD ratings (7-point text labels) |
+| `sl_plutchik_primary_<Annotator_N>` | Per-annotator emotion label |
+| `sl_v_<N>`, `sl_a_<N>`, `sl_d_<N>` | Per-annotator VAD ratings (7-point text labels) |
 | `sl_confidence_<Annotator_N>` | Per-annotator confidence |
 
 ---
 
 ## Configuration
 
-The pipeline reads `config/config-dmlr.yml` for model definitions and pricing.  Override data and output paths via CLI:
+The pipeline reads `config/config.yml` for model definitions and pricing. Override paths via CLI:
 
 ```bash
 python scripts/run_pipeline_dmlr2026.py \
-    --data-dir /path/to/merged/csvs \
+    --data-dir /path/to/csvs \
     --output-dir /path/to/output \
-    --config /path/to/custom-config.yml \
+    --config /path/to/config.yml \
     --seed 42
 ```
 
 ---
 
-## Reproducibility Notes
+## Reproducibility
 
-- **Random seed:** All stochastic operations (bootstrap CIs, stratified splits) use `--seed 42` by default
+- **Random seed:** All stochastic operations use `--seed 42` by default
 - **VAD mapping:** 7 text labels per dimension mapped to [-1.0, +1.0] at equal intervals
-- **Baseline prompt:** Asks about the **speaker's** emotion
+- **Baseline prompt:** Asks about the **speaker's** emotion (the annotation target)
 - **Safety limits:** API call tracker caps at 500/model, 2000 total; checkpoints every 50 calls
-- **Annotation target:** Labels describe the speaker's emotional state, not the listener's response
-- **Model selection:** All 7 baseline models are defined in `config/config-dmlr.yml` under `models.complete`
+- **Model selection:** All 7 baseline models defined in `config/config.yml` under `models.complete`
+- **Prompt modes:** Zero-shot (default), chain-of-thought, and few-shot (3 examples)
 
 ---
 
 ## Project Structure
 
 ```
-scripts/run_pipeline_dmlr2026.py     # DMLR pipeline (all stages)
-scripts/generate_figures.py          # Paper figure generation
-config/config-dmlr.yml               # Model ensemble + pricing
-data/human-gold/                     # Merged annotated CSVs
+config/config.yml                    # Model definitions + pricing
+data/human-gold/                     # Annotated scenario CSVs (5 files)
 prompts/                             # Prompt templates (zero-shot, CoT, few-shot)
+scripts/
+  run_pipeline_dmlr2026.py           # Main pipeline (all stages)
+  generate_figures.py                # Paper figures from CSV data
+  generate_model_confusion_matrix.py # Model confusion matrix from baseline results
+  qa_pipeline.py                     # 4-level QA (schema, stats, agreement, adjudication)
 reports/dmlr2026/                    # Pipeline outputs (tables, figures, JSON)
+DATASHEET.md                         # Gebru et al. datasheet
+REPRODUCIBILITY.md                   # Pineau reproducibility checklist
+CHANGELOG.md                         # Version history
+LICENSE                              # CC-BY-4.0 (data) + MIT (code)
 ```

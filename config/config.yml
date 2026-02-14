@@ -1,8 +1,6 @@
 # =============================================================================
 # CEI-ToM DMLR 2026 Configuration
 # =============================================================================
-# IMPORTANT: The cogsci_off_limits section below documents models used in the
-# CogSci 2026 companion paper (different venue/audience). Overlap is acceptable.
 
 llm_inference:
   # Model sets by execution mode
@@ -12,7 +10,7 @@ llm_inference:
       - id: "gpt-5-mini"
         provider: "openai"
 
-    # COMPLETE mode: DMLR baseline models
+    # COMPLETE mode: baseline models
     complete:
       # Commercial API models
       - id: "gpt-5-mini"
@@ -31,31 +29,10 @@ llm_inference:
       - id: "Qwen/Qwen2.5-7B-Instruct-Turbo"
         provider: "together"
 
-  # Models used in CogSci 2026 companion paper (different venue, for reference)
-  cogsci_off_limits:
-    behavioral:
-      - "gpt-5-mini"
-      - "claude-haiku-4-5"
-      - "grok-4-1-fast"
-      - "gemini-3-flash-preview"
-      - "kimi-k2-instruct-0905"
-      - "qwen3-235b-a22b-instruct-2507"
-      - "deepseek-v3p2"
-      - "minimax-m2p1"
-      - "Meta-Llama-3.1-8B-Instruct-Turbo"
-      - "Mistral-Small-24B-Instruct-2501"
-      - "gemma-3n-E4B-it"
-    probing:
-      - "llama-3-8b"
-      - "mistral-7b"
-      - "flan-t5-xxl"
-      - "mixtral-8x22b"
-
 # =============================================================================
 # PRICING (USD per 1M tokens, as of 2026-02-07)
 # =============================================================================
 pricing_usd_per_1m_tokens:
-  # --- DMLR-safe models (recommended for baselines) ---
   openai:
     gpt-5-mini:           {input: 0.25,  output:  2.00}
     _default:             {input: 0.25,  output:  2.00}
@@ -78,16 +55,3 @@ pricing_usd_per_1m_tokens:
     _default:             {input: 0.15,  output:  0.60}
   ollama:
     _default:             {input: 0.0,   output:  0.0}
-
-  # --- CogSci models (reference only, DO NOT use for DMLR) ---
-  # openai:  gpt-5-mini            {input: 0.25,  output:  2.00}
-  # anthropic: claude-haiku-4-5    {input: 1.00,  output:  5.00}
-  # xai:     grok-4-1-fast         {input: 0.20,  output:  0.50}
-  # google:  gemini-3-flash        {input: 0.50,  output:  3.00}
-  # fireworks: kimi-k2             {input: 0.60,  output:  2.50}
-  # fireworks: qwen3-235b          {input: 0.22,  output:  0.88}
-  # fireworks: deepseek-v3p2       {input: 0.56,  output:  1.68}
-  # fireworks: minimax-m2p1        {input: 0.30,  output:  1.20}
-  # together: llama-3.1-8b         {input: 0.18,  output:  0.18}
-  # together: mistral-small-24b    {input: 0.10,  output:  0.30}
-  # together: gemma-3n-e4b         {input: 0.03,  output:  0.03}
